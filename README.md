@@ -5,9 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.9.0-green)](../../CHANGELOG.md)
-
-[![Version](https://img.shields.io/badge/Version-0.9.0-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.11.1-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 
@@ -224,6 +222,19 @@ ls scripts/ralph/runs/*/receipts/
 cat scripts/ralph/runs/*/receipts/impl-fn-1.1.json
 # Must have: {"type":"impl_review","id":"fn-1.1",...}
 ```
+
+### Custom rp-cli instructions conflicting
+
+> **Caution**: If you have custom instructions for `rp-cli` in your `CLAUDE.md` or `AGENTS.md`, they may conflict with Flow-Next's RepoPrompt integration.
+
+Flow-Next's plan-review and impl-review skills include specific instructions for `rp-cli` usage (window selection, builder workflow, chat commands). Custom rp-cli instructions can override these and cause unexpected behavior.
+
+**Symptoms:**
+- Reviews not using the correct RepoPrompt window
+- Builder not selecting expected files
+- Chat commands failing or behaving differently
+
+**Fix:** Remove or comment out custom rp-cli instructions from your `CLAUDE.md`/`AGENTS.md` when using Flow-Next reviews. The plugin provides complete rp-cli guidance.
 
 ---
 

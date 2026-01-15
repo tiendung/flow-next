@@ -611,6 +611,61 @@ PY
 echo -e "${GREEN}✓${NC} depends_on_epics blocks"
 PASS=$((PASS + 1))
 
+echo -e "${YELLOW}--- stdin support ---${NC}"
+cd "$TEST_DIR/repo"
+STDIN_EPIC_JSON="$(scripts/flowctl epic create --title "Stdin test" --json)"
+STDIN_EPIC="$(echo "$STDIN_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+# Test epic set-plan with stdin
+scripts/flowctl epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
+# Stdin Test Plan
+
+## Overview
+Testing stdin support for set-plan.
+
+## Acceptance
+- Works via stdin
+EOF
+# Verify content was written
+spec_content="$(scripts/flowctl cat "$STDIN_EPIC")"
+echo "$spec_content" | grep -q "Testing stdin support" || { echo "stdin set-plan failed"; FAIL=$((FAIL + 1)); }
+echo -e "${GREEN}✓${NC} stdin epic set-plan"
+PASS=$((PASS + 1))
+
+echo -e "${YELLOW}--- task set-spec combined ---${NC}"
+scripts/flowctl task create --epic "$STDIN_EPIC" --title "Set-spec test" --json >/dev/null
+SETSPEC_TASK="${STDIN_EPIC}.1"
+# Write temp files for combined set-spec
+echo 'This is the description.' > "$TEST_DIR/desc.md"
+echo '- [ ] Check 1
+- [ ] Check 2' > "$TEST_DIR/acc.md"
+scripts/flowctl task set-spec "$SETSPEC_TASK" --description "$TEST_DIR/desc.md" --acceptance "$TEST_DIR/acc.md" --json >/dev/null
+# Verify both sections were written
+task_spec="$(scripts/flowctl cat "$SETSPEC_TASK")"
+echo "$task_spec" | grep -q "This is the description" || { echo "set-spec description failed"; FAIL=$((FAIL + 1)); }
+echo "$task_spec" | grep -q "Check 1" || { echo "set-spec acceptance failed"; FAIL=$((FAIL + 1)); }
+echo -e "${GREEN}✓${NC} task set-spec combined"
+PASS=$((PASS + 1))
+
+echo -e "${YELLOW}--- checkpoint save/restore ---${NC}"
+# Save checkpoint
+scripts/flowctl checkpoint save --epic "$STDIN_EPIC" --json >/dev/null
+# Verify checkpoint file exists
+[[ -f ".flow/.checkpoint-${STDIN_EPIC}.json" ]] || { echo "checkpoint file not created"; FAIL=$((FAIL + 1)); }
+# Modify epic spec
+scripts/flowctl epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
+# Modified content
+EOF
+# Restore from checkpoint
+scripts/flowctl checkpoint restore --epic "$STDIN_EPIC" --json >/dev/null
+# Verify original content restored
+restored_spec="$(scripts/flowctl cat "$STDIN_EPIC")"
+echo "$restored_spec" | grep -q "Testing stdin support" || { echo "checkpoint restore failed"; FAIL=$((FAIL + 1)); }
+# Delete checkpoint
+scripts/flowctl checkpoint delete --epic "$STDIN_EPIC" --json >/dev/null
+[[ ! -f ".flow/.checkpoint-${STDIN_EPIC}.json" ]] || { echo "checkpoint delete failed"; FAIL=$((FAIL + 1)); }
+echo -e "${GREEN}✓${NC} checkpoint save/restore/delete"
+PASS=$((PASS + 1))
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"
