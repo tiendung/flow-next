@@ -53,6 +53,13 @@ Parse the spec carefully. Identify:
 
 ## Phase 2: Implement
 
+**First, capture base commit for scoped review:**
+```bash
+BASE_COMMIT=$(git rev-parse HEAD)
+echo "BASE_COMMIT=$BASE_COMMIT"
+```
+Save this - you'll pass it to impl-review so it only reviews THIS task's changes.
+
 Read relevant code, implement the feature/fix. Follow existing patterns.
 
 Rules:
@@ -81,11 +88,14 @@ Skip if REVIEW_MODE is `none`.
 
 **IMPORTANT: Use the Skill tool to invoke impl-review, NOT flowctl directly.**
 
+Pass the BASE_COMMIT captured in Phase 2 so the review only covers THIS task's changes (not the entire branch):
+
 ```
-/flow-next:impl-review <TASK_ID>
+/flow-next:impl-review <TASK_ID> --base $BASE_COMMIT
 ```
 
 The skill handles everything:
+- Scoped diff (BASE_COMMIT..HEAD, not main..HEAD)
 - Receipt paths (don't pass --receipt yourself)
 - Sending to reviewer (rp or codex backend)
 - Parsing verdict (SHIP/NEEDS_WORK/MAJOR_RETHINK)
@@ -94,7 +104,7 @@ The skill handles everything:
 If NEEDS_WORK:
 1. Fix the issues identified
 2. Commit fixes
-3. Re-invoke the skill (NOT flowctl): `/flow-next:impl-review <TASK_ID>`
+3. Re-invoke the skill (NOT flowctl): `/flow-next:impl-review <TASK_ID> --base $BASE_COMMIT`
 
 Continue until SHIP verdict.
 

@@ -17,24 +17,16 @@ set -e
 FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
-# Check available backends
-HAVE_RP=$(which rp-cli >/dev/null 2>&1 && echo 1 || echo 0)
-HAVE_CODEX=$(which codex >/dev/null 2>&1 && echo 1 || echo 0)
+# Priority: --review flag > env > config (flag parsed in SKILL.md)
+BACKEND=$($FLOWCTL review-backend)
 
-# Get configured backend (priority: env > config)
-BACKEND="${FLOW_REVIEW_BACKEND:-}"
-if [[ -z "$BACKEND" ]]; then
-  BACKEND="$($FLOWCTL config get review.backend 2>/dev/null | jq -r '.value // empty' 2>/dev/null || echo "")"
+if [[ "$BACKEND" == "ASK" ]]; then
+  echo "Error: No review backend configured."
+  echo "Run /flow-next:setup to configure, or pass --review=rp|codex|none"
+  exit 1
 fi
 
-# Fallback to available (rp preferred)
-if [[ -z "$BACKEND" ]]; then
-  if [[ "$HAVE_RP" == "1" ]]; then BACKEND="rp"
-  elif [[ "$HAVE_CODEX" == "1" ]]; then BACKEND="codex"
-  else BACKEND="none"; fi
-fi
-
-echo "Review backend: $BACKEND"
+echo "Review backend: $BACKEND (override: --review=rp|codex|none)"
 ```
 
 **If backend is "none"**: Skip review, inform user, and exit cleanly (no error).

@@ -23,8 +23,7 @@ FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
 1. `--review=rp|codex|export|none` argument
 2. `FLOW_REVIEW_BACKEND` env var (`rp`, `codex`, `none`)
 3. `.flow/config.json` → `review.backend`
-4. Interactive prompt if both rp-cli and codex available (and not in Ralph mode)
-5. Default: whichever is available (rp preferred)
+4. **Error** - no auto-detection
 
 ### Parse from arguments first
 
@@ -36,46 +35,19 @@ Check $ARGUMENTS for:
 
 If found, use that backend and skip all other detection.
 
-### Otherwise detect
+### Otherwise read from config
 
 ```bash
-# Check available backends
-HAVE_RP=$(which rp-cli >/dev/null 2>&1 && echo 1 || echo 0)
-HAVE_CODEX=$(which codex >/dev/null 2>&1 && echo 1 || echo 0)
+# Priority: --review flag > env > config
+BACKEND=$($FLOWCTL review-backend)
 
-# Get configured backend
-BACKEND="${FLOW_REVIEW_BACKEND:-}"
-if [[ -z "$BACKEND" ]]; then
-  BACKEND="$($FLOWCTL config get review.backend 2>/dev/null | jq -r '.value // empty')"
+if [[ "$BACKEND" == "ASK" ]]; then
+  echo "Error: No review backend configured."
+  echo "Run /flow-next:setup to configure, or pass --review=rp|codex|none"
+  exit 1
 fi
-```
 
-### If no backend configured and both available
-
-If `BACKEND` is empty AND both `HAVE_RP=1` and `HAVE_CODEX=1`, AND not in Ralph mode (`FLOW_RALPH` not set):
-
-Output this question as text (do NOT use AskUserQuestion tool):
-```
-Which review backend?
-a) Codex CLI (cross-platform, GPT 5.2 High)
-b) RepoPrompt (macOS, visual builder)
-
-(Reply: "a", "codex", "b", "rp", or just tell me)
-```
-
-Wait for response. Parse naturally.
-
-**Default if empty/ambiguous**: `codex`
-
-### If only one available or in Ralph mode
-
-```bash
-# Fallback to available
-if [[ -z "$BACKEND" ]]; then
-  if [[ "$HAVE_RP" == "1" ]]; then BACKEND="rp"
-  elif [[ "$HAVE_CODEX" == "1" ]]; then BACKEND="codex"
-  else BACKEND="none"; fi
-fi
+echo "Review backend: $BACKEND (override: --review=rp|codex|none)"
 ```
 
 ## Critical Rules

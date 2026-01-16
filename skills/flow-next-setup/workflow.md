@@ -70,7 +70,22 @@ Read current `.flow/meta.json`, add/update these fields (preserve all others):
 
 ## Step 6: Configuration Questions
 
-First, check docs status for the question:
+### 6a: Detect review backends
+
+Before asking questions, detect available review tools:
+
+```bash
+# Detect available review backends
+HAVE_RP=$(which rp-cli >/dev/null 2>&1 && echo 1 || echo 0)
+HAVE_CODEX=$(which codex >/dev/null 2>&1 && echo 1 || echo 0)
+
+# Read current config value if exists (requires jq)
+CURRENT_BACKEND=$("${PLUGIN_ROOT}/scripts/flowctl" config get review.backend --json 2>/dev/null | jq -r '.value // empty')
+```
+
+Store detection results for use in questions.
+
+### 6b: Check docs status
 
 Read the template from [templates/claude-md-snippet.md](templates/claude-md-snippet.md).
 
@@ -108,6 +123,16 @@ Now use `AskUserQuestion` with all questions at once:
       "multiSelect": false
     },
     {
+      "header": "Review",
+      "question": "Which review backend for Carmack-level reviews?",
+      "options": [
+        {"label": "Codex CLI (Recommended)", "description": "Cross-platform, uses GPT 5.2 High. <detected if HAVE_CODEX=1, (not detected) if HAVE_CODEX=0>"},
+        {"label": "RepoPrompt", "description": "macOS only, visual context builder. <detected if HAVE_RP=1, (not detected) if HAVE_RP=0>"},
+        {"label": "None", "description": "Skip reviews, can configure later with --review flag"}
+      ],
+      "multiSelect": false
+    },
+    {
       "header": "Docs",
       "question": "Update project documentation with Flow-Next instructions?",
       "options": [
@@ -133,6 +158,8 @@ Now use `AskUserQuestion` with all questions at once:
 
 **Note:** If docs are already current, adjust the Docs question description to mention "(already up to date)" or skip that question entirely.
 
+**Note:** For Review question, if `CURRENT_BACKEND` is set, note it in the question: "Current: <backend>". If neither tool is detected, add note: "Neither rp-cli nor codex detected. Install one for review support."
+
 ## Step 7: Process Answers
 
 Based on user answers:
@@ -142,6 +169,20 @@ Based on user answers:
 
 **Plan-Sync:**
 - If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl" config set planSync.enabled true --json`
+
+**Review:**
+Map user's answer to config value and persist:
+
+```bash
+# Determine backend from answer
+case "$review_answer" in
+  "Codex"*) REVIEW_BACKEND="codex" ;;
+  "RepoPrompt"*) REVIEW_BACKEND="rp" ;;
+  *) REVIEW_BACKEND="none" ;;
+esac
+
+"${PLUGIN_ROOT}/scripts/flowctl" config set review.backend "$REVIEW_BACKEND" --json
+```
 
 **Docs:**
 For each chosen file (CLAUDE.md and/or AGENTS.md):
@@ -172,12 +213,14 @@ To use from command line:
 Configuration:
 - Memory: <enabled|disabled>
 - Plan-Sync: <enabled|disabled>
+- Review backend: <codex|rp|none>
 
 Documentation updated:
 - <files updated or "none">
 
 Notes:
 - Re-run /flow-next:setup after plugin updates to refresh scripts
+- Interested in autonomous mode? Run /flow-next:ralph-init
 - Uninstall: rm -rf .flow/bin .flow/usage.md and remove <!-- BEGIN/END FLOW-NEXT --> block from docs
 - This setup is optional - plugin works without it
 ```

@@ -55,17 +55,11 @@ If no input provided, ask for it.
 
 ## FIRST: Parse Options or Ask Questions
 
-Check available backends and configured preference:
+Check configured backend:
 ```bash
-HAVE_RP=$(which rp-cli >/dev/null 2>&1 && echo 1 || echo 0)
-HAVE_CODEX=$(which codex >/dev/null 2>&1 && echo 1 || echo 0)
-
-# Check configured backend (priority: env > config)
-CONFIGURED_BACKEND="${FLOW_REVIEW_BACKEND:-}"
-if [[ -z "$CONFIGURED_BACKEND" ]]; then
-  CONFIGURED_BACKEND="$($FLOWCTL config get review.backend 2>/dev/null | jq -r '.value // empty')"
-fi
+REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
+Returns: `ASK` (not configured), or `rp`/`codex`/`none` (configured).
 
 ### Option Parsing (skip questions if found in arguments)
 
@@ -84,36 +78,18 @@ Parse the arguments for these patterns. If found, use them and skip correspondin
 
 ### If options NOT found in arguments
 
-**Skip review question if**: Ralph mode (`FLOW_RALPH=1`) OR backend already configured (`CONFIGURED_BACKEND` not empty). In these cases, only ask branch question:
+**If REVIEW_BACKEND is rp, codex, or none** (already configured): Only ask branch question. Show override hint:
 
 ```
 Quick setup: Where to work?
 a) Current branch  b) New branch  c) Isolated worktree
 
 (Reply: "a", "current", or just tell me)
+(Tip: --review=rp|codex|export|none overrides configured backend)
 ```
 
-**Otherwise**, output questions based on available backends (do NOT use AskUserQuestion tool):
+**If REVIEW_BACKEND is ASK** (not configured): Ask both branch AND review questions:
 
-**If both rp-cli AND codex available:**
-```
-Quick setup before starting:
-
-1. **Branch** — Where to work?
-   a) Current branch
-   b) New branch
-   c) Isolated worktree
-
-2. **Review** — Run Carmack-level review after?
-   a) Yes, Codex CLI (cross-platform, GPT 5.2 High)
-   b) Yes, RepoPrompt chat (macOS, visual builder)
-   c) Yes, export for external LLM (ChatGPT, Claude web)
-   d) No
-
-(Reply: "1a 2a", "current branch, codex review", or just tell me naturally)
-```
-
-**If only rp-cli available:**
 ```
 Quick setup before starting:
 
@@ -123,47 +99,19 @@ Quick setup before starting:
    c) Isolated worktree
 
 2. **Review** — Run Carmack-level review after?
-   a) Yes, RepoPrompt chat
-   b) Yes, export for external LLM
-   c) No
-
-(Reply: "1a 2a", "current branch, export review", or just tell me naturally)
-```
-
-**If only codex available:**
-```
-Quick setup before starting:
-
-1. **Branch** — Where to work?
-   a) Current branch
-   b) New branch
-   c) Isolated worktree
-
-2. **Review** — Run Carmack-level review after?
-   a) Yes, Codex CLI (GPT 5.2 High)
-   b) Yes, export for external LLM
-   c) No
+   a) Codex CLI
+   b) RepoPrompt
+   c) Export for external LLM
+   d) None (configure later with --review flag)
 
 (Reply: "1a 2a", "current branch, codex", or just tell me naturally)
-```
-
-**If neither rp-cli nor codex available:**
-```
-Quick setup: Where to work?
-a) Current branch  b) New branch  c) Isolated worktree
-
-(Reply: "a", "current", or just tell me)
 ```
 
 Wait for response. Parse naturally — user may reply terse or ramble via voice.
 
 **Defaults when empty/ambiguous:**
 - Branch = `new`
-- Review = configured backend if set, else `codex` if available, else `rp` if available, else `none`
-
-**Defaults when no review backend available:**
-- Branch = `new`
-- Review = `none`
+- Review = configured backend if set, else `none` (no auto-detect fallback)
 
 **Do NOT read files or write code until user responds.**
 

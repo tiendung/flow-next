@@ -387,9 +387,11 @@ flowctl config toggle memory.enabled [--json]
 |-----|------|---------|-------------|
 | `memory.enabled` | bool | `false` | Enable memory system |
 | `planSync.enabled` | bool | `false` | Enable plan-sync after task completion |
-| `review.backend` | string | auto | Default review backend (`rp`, `codex`, `none`) |
+| `review.backend` | string | `null` | Default review backend (`rp`, `codex`, `none`). If unset, review commands require `--review` or `FLOW_REVIEW_BACKEND`. |
 
-Auto-detect priority: `FLOW_REVIEW_BACKEND` env → config → available CLI.
+Priority: `--review=...` argument > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > error.
+
+No auto-detect. Run `/flow-next:setup` (or `flowctl config set review.backend ...`) to configure.
 
 ### memory
 

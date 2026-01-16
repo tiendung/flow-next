@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.11.4-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.12.0-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 
@@ -20,6 +20,22 @@
 🌐 **Prefer a visual overview?** See the [Flow-Next app page](https://mickel.tech/apps/flow-next) for diagrams and examples.
 
 > **New: Codex Review Backend.** Cross-model reviews now work on Linux/Windows via OpenAI Codex CLI. Same Carmack-level criteria as RepoPrompt. See [Cross-Model Reviews](#cross-model-reviews) for setup.
+
+---
+
+## Table of Contents
+
+- [What Is This?](#what-is-this)
+- [Why It Works](#why-it-works)
+- [Quick Start](#quick-start) — Install, setup, use
+- [When to Use What](#when-to-use-what) — Interview vs Plan vs Work
+- [Troubleshooting](#troubleshooting)
+- [Ralph (Autonomous Mode)](#ralph-autonomous-mode) — Run overnight
+- [Features](#features) — Re-anchoring, multi-user, reviews, dependencies
+- [Commands](#commands) — All slash commands + flags
+- [The Workflow](#the-workflow) — Planning and work phases
+- [.flow/ Directory](#flow-directory) — File structure
+- [flowctl CLI](#flowctl-cli) — Direct CLI usage
 
 ---
 
@@ -125,11 +141,11 @@ Two models catch what one misses.
 /flow-next:setup
 ```
 
-This is technically optional but **highly recommended**. Great for power users and non-Claude-Code environments (Codex, Cursor, etc.). It:
+This is technically optional but **highly recommended**. It:
+- **Configures review backend** (RepoPrompt, Codex, or none) — required for cross-model reviews
 - Copies `flowctl` to `.flow/bin/` for direct CLI access
 - Adds flow-next instructions to CLAUDE.md/AGENTS.md (helps other AI tools understand your project)
 - Creates `.flow/usage.md` with full CLI reference
-- Tracks setup version for updates
 
 **Idempotent** - safe to re-run. Detects plugin updates and refreshes scripts automatically.
 
@@ -157,18 +173,68 @@ flowctl ready --epic fn-1    # What's ready to work on
 
 That's it. Flow-Next handles research, task ordering, reviews, and audit trails.
 
-### Recommended Workflow
+### When to Use What
 
-**Spec -> Interview -> Plan -> Work**
+Flow-next is flexible. There's no single "correct" order — the right sequence depends on how well-defined your spec already is.
 
-1. **Write a short spec** - 1-5 sentences describing what you want to build
-2. **Interview** (optional) - `/flow-next:interview "your idea"` - 40+ questions to surface edge cases
-3. **Plan** - `/flow-next:plan "your idea"` - creates epic with dependency-ordered tasks
-4. **Work** - `/flow-next:work fn-1` - executes tasks with re-anchoring and reviews
+**The key question: How fleshed out is your idea?**
 
-Start simple. Add interview when specs are fuzzy. Add reviews when quality matters.
+#### Vague idea or rough concept
 
-### 4. Autonomous Mode (Optional)
+```
+Interview → Plan → Work
+```
+
+1. **Interview first** — `/flow-next:interview "your rough idea"` asks 40+ deep questions to surface requirements, edge cases, and decisions you haven't thought about
+2. **Plan** — `/flow-next:plan fn-1` takes the refined spec and researches best practices, current docs, repo patterns, then splits into properly-sized tasks
+3. **Work** — `/flow-next:work fn-1` executes with re-anchoring and reviews
+
+#### Well-written spec or PRD
+
+```
+Plan → Interview → Work
+```
+
+1. **Plan first** — `/flow-next:plan specs/my-feature.md` researches best practices and current patterns, then breaks your spec into epic + tasks
+2. **Interview after** — `/flow-next:interview fn-1` runs deep questions against the plan to catch edge cases, missing requirements, or assumptions
+3. **Work** — `/flow-next:work fn-1` executes
+
+#### Minimal planning
+
+```
+Plan → Work
+```
+
+Skip interview entirely for well-understood changes. Plan still researches best practices and splits into tasks.
+
+#### Quick single-task (spec already complete)
+
+```
+Work directly
+```
+
+```bash
+/flow-next:work specs/small-fix.md
+```
+
+For small, self-contained changes where you already have a complete spec. Creates an epic with **one task** and executes immediately. You get flow tracking, re-anchoring, and optional review — without full planning overhead.
+
+Best for: bug fixes, small features, well-scoped changes that don't need task splitting.
+
+**Note:** This does NOT split into multiple tasks. For detailed specs that need breakdown, use Plan first.
+
+**Summary:**
+
+| Starting point | Recommended sequence |
+|----------------|---------------------|
+| Vague idea, rough notes | Interview → Plan → Work |
+| Detailed spec/PRD | Plan → Interview → Work |
+| Well-understood, needs task splitting | Plan → Work |
+| Small single-task, spec complete | Work directly (creates 1 epic + 1 task) |
+
+You can always run interview again after planning to catch anything missed. Interview writes back to the spec, so iterations refine rather than replace.
+
+### Autonomous Mode (Optional)
 
 Want to run overnight? See [Ralph Mode](#ralph-autonomous-mode).
 
@@ -535,7 +601,9 @@ flowctl config set review.backend rp      # or codex, or none
 export FLOW_REVIEW_BACKEND=codex
 ```
 
-Priority: `--review=...` argument > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > auto-detect.
+Priority: `--review=...` argument > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > error.
+
+**No auto-detect.** Run `/flow-next:setup` to configure your preferred review backend, or pass `--review=X` explicitly.
 
 #### Which to Choose?
 
@@ -546,7 +614,7 @@ Priority: `--review=...` argument > `FLOW_REVIEW_BACKEND` env > `.flow/config.js
 | CI/headless environments | Codex (no GUI needed) |
 | Ralph overnight runs | Either works; RP needs window open |
 
-Without either backend installed, reviews are skipped with a warning.
+Without a backend configured, reviews fail with a clear error. Run `/flow-next:setup` or pass `--review=X`.
 
 ### Dependency Graphs
 
@@ -565,6 +633,7 @@ Prevents infinite retry loops. Review `block-*.md` files in the morning to under
 
 Synchronizes downstream task specs when implementation drifts from the original plan.
 
+**Automatic (opt-in):**
 ```bash
 flowctl config set planSync.enabled true
 ```
@@ -575,6 +644,15 @@ When enabled, after each task completes, a plan-sync agent:
 3. Updates affected task specs with accurate info
 
 Skip conditions: disabled (default), task failed, no downstream tasks.
+
+**Manual trigger:**
+```bash
+/flow-next:sync fn-1.2              # Sync from specific task
+/flow-next:sync fn-1                # Scan whole epic for drift
+/flow-next:sync fn-1.2 --dry-run    # Preview changes without writing
+```
+
+Manual sync ignores `planSync.enabled` config—if you run it, you want it. Works with any source task status (not just done).
 
 ### Memory System (Opt-in)
 
@@ -609,7 +687,7 @@ Config lives in `.flow/config.json`, separate from Ralph's `scripts/ralph/config
 
 ## Commands
 
-Seven commands, complete workflow:
+Eight commands, complete workflow:
 
 | Command | What It Does |
 |---------|--------------|
@@ -618,6 +696,7 @@ Seven commands, complete workflow:
 | `/flow-next:interview <id>` | Deep interview to flesh out a spec before planning |
 | `/flow-next:plan-review <id>` | Carmack-level plan review via RepoPrompt |
 | `/flow-next:impl-review` | Carmack-level impl review of current branch |
+| `/flow-next:sync <id>` | Manual plan-sync: update downstream tasks after implementation drift |
 | `/flow-next:ralph-init` | Scaffold repo-local Ralph harness (`scripts/ralph/`) |
 | `/flow-next:setup` | Optional: install flowctl locally + add docs (for power users) |
 | `/flow-next:uninstall` | Remove flow-next from project (keeps tasks if desired) |
@@ -655,6 +734,7 @@ Natural language also works:
 | `/flow-next:work` | `--branch=current\|new\|worktree`, `--review=rp\|codex\|export\|none`, `--no-review` |
 | `/flow-next:plan-review` | `--review=rp\|codex\|export` |
 | `/flow-next:impl-review` | `--review=rp\|codex\|export` |
+| `/flow-next:sync` | `--dry-run` |
 
 ---
 
@@ -666,7 +746,7 @@ Flow-Next uses the same defaults in manual and Ralph runs. Ralph bypasses prompt
 
 - plan: `--research=grep`
 - work: `--branch=new`
-- review: `rp` when `rp-cli` exists, otherwise `none`
+- review: from `.flow/config.json` (set via `/flow-next:setup`), or `none` if not configured
 
 Override via flags or `scripts/ralph/config.env`.
 

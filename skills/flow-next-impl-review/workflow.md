@@ -17,24 +17,16 @@ set -e
 FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
-# Check available backends
-HAVE_RP=$(which rp-cli >/dev/null 2>&1 && echo 1 || echo 0)
-HAVE_CODEX=$(which codex >/dev/null 2>&1 && echo 1 || echo 0)
+# Priority: --review flag > env > config (flag parsed in SKILL.md)
+BACKEND=$($FLOWCTL review-backend)
 
-# Get configured backend (priority: env > config)
-BACKEND="${FLOW_REVIEW_BACKEND:-}"
-if [[ -z "$BACKEND" ]]; then
-  BACKEND="$($FLOWCTL config get review.backend 2>/dev/null | jq -r '.value // empty' 2>/dev/null || echo "")"
+if [[ "$BACKEND" == "ASK" ]]; then
+  echo "Error: No review backend configured."
+  echo "Run /flow-next:setup to configure, or pass --review=rp|codex|none"
+  exit 1
 fi
 
-# Fallback to available (rp preferred)
-if [[ -z "$BACKEND" ]]; then
-  if [[ "$HAVE_RP" == "1" ]]; then BACKEND="rp"
-  elif [[ "$HAVE_CODEX" == "1" ]]; then BACKEND="codex"
-  else BACKEND="none"; fi
-fi
-
-echo "Review backend: $BACKEND"
+echo "Review backend: $BACKEND (override: --review=rp|codex|none)"
 ```
 
 **If backend is "none"**: Skip review, inform user, and exit cleanly (no error).
@@ -47,15 +39,21 @@ echo "Review backend: $BACKEND"
 
 Use when `BACKEND="codex"`.
 
-### Step 1: Identify Task and Base Branch
+### Step 1: Identify Task and Diff Base
 
 ```bash
 BRANCH="$(git branch --show-current)"
-BASE_BRANCH="main"
-git log ${BASE_BRANCH}..HEAD --oneline 2>/dev/null || BASE_BRANCH="master"
 
-# Parse task ID from arguments if provided
-TASK_ID="${1:-}"
+# Use BASE_COMMIT from arguments if provided (task-scoped review)
+# Otherwise fall back to main/master (full branch review)
+if [[ -z "$BASE_COMMIT" ]]; then
+  DIFF_BASE="main"
+  git rev-parse main >/dev/null 2>&1 || DIFF_BASE="master"
+else
+  DIFF_BASE="$BASE_COMMIT"
+fi
+
+git log ${DIFF_BASE}..HEAD --oneline
 ```
 
 ### Step 2: Execute Review
@@ -63,7 +61,7 @@ TASK_ID="${1:-}"
 ```bash
 RECEIPT_PATH="${REVIEW_RECEIPT_PATH:-/tmp/impl-review-receipt.json}"
 
-$FLOWCTL codex impl-review "$TASK_ID" --base "$BASE_BRANCH" --receipt "$RECEIPT_PATH"
+$FLOWCTL codex impl-review "$TASK_ID" --base "$DIFF_BASE" --receipt "$RECEIPT_PATH"
 ```
 
 **Output includes `VERDICT=SHIP|NEEDS_WORK|MAJOR_RETHINK`.**
@@ -111,15 +109,26 @@ If this block fails, output `<promise>RETRY</promise>` and stop. Do not improvis
 
 ```bash
 BRANCH="$(git branch --show-current)"
-git log main..HEAD --oneline 2>/dev/null || git log master..HEAD --oneline
-CHANGED_FILES="$(git diff main..HEAD --name-only 2>/dev/null || git diff master..HEAD --name-only)"
-git diff main..HEAD --stat 2>/dev/null || git diff master..HEAD --stat
+
+# Use BASE_COMMIT from arguments if provided (task-scoped review)
+# Otherwise fall back to main/master (full branch review)
+if [[ -z "$BASE_COMMIT" ]]; then
+  DIFF_BASE="main"
+  git rev-parse main >/dev/null 2>&1 || DIFF_BASE="master"
+else
+  DIFF_BASE="$BASE_COMMIT"
+fi
+
+git log ${DIFF_BASE}..HEAD --oneline
+CHANGED_FILES="$(git diff ${DIFF_BASE}..HEAD --name-only)"
+git diff ${DIFF_BASE}..HEAD --stat
 ```
 
 Save:
 - Branch name
 - Changed files list
 - Commit summary
+- DIFF_BASE (for reference in review prompt)
 
 Compose a 1-2 sentence summary for the setup-review command.
 
