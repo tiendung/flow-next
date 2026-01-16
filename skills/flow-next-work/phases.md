@@ -122,7 +122,50 @@ $FLOWCTL show <task-id> --json
 
 If status is not `done`, the worker failed. Check output and retry or investigate.
 
-### 3e. Loop
+### 3e. Plan Sync (if enabled)
+
+Only run plan-sync if the task status is `done` (from step 3d). If not `done`, skip plan-sync and investigate/retry.
+
+Check if plan-sync should run:
+
+```bash
+$FLOWCTL config get planSync.enabled --json
+```
+
+Skip unless planSync.enabled is explicitly `true` (null/false/missing = skip).
+
+Get remaining tasks (todo status = not started yet):
+
+```bash
+$FLOWCTL tasks --epic <epic-id> --status todo --json
+```
+
+Skip if empty (no downstream tasks to update).
+
+Extract downstream task IDs:
+
+```bash
+DOWNSTREAM=$($FLOWCTL tasks --epic <epic-id> --status todo --json | jq -r '[.[].id] | join(",")')
+```
+
+Note: Only sync to `todo` tasks. `in_progress` tasks are already being worked on - updating them mid-flight could cause confusion.
+
+Use the Task tool to spawn the `plan-sync` subagent with this prompt:
+
+```
+Sync downstream tasks after implementation.
+
+COMPLETED_TASK_ID: fn-X.Y
+EPIC_ID: fn-X
+FLOWCTL: /path/to/flowctl
+DOWNSTREAM_TASK_IDS: fn-X.3,fn-X.4,fn-X.5
+
+Follow your phases in plan-sync.md exactly.
+```
+
+Plan-sync returns summary. Log it but don't block - task updates are best-effort.
+
+### 3f. Loop
 
 Return to 3a for next task.
 

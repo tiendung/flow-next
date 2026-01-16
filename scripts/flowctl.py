@@ -75,18 +75,31 @@ def ensure_flow_exists() -> bool:
 
 def get_default_config() -> dict:
     """Return default config structure."""
-    return {"memory": {"enabled": False}}
+    return {"memory": {"enabled": False}, "planSync": {"enabled": False}}
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge override into base. Override values win for conflicts."""
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 def load_flow_config() -> dict:
-    """Load .flow/config.json, returning defaults if missing."""
+    """Load .flow/config.json, merging with defaults for missing keys."""
     config_path = get_flow_dir() / CONFIG_FILE
     defaults = get_default_config()
     if not config_path.exists():
         return defaults
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else defaults
+        if isinstance(data, dict):
+            return deep_merge(defaults, data)
+        return defaults
     except (json.JSONDecodeError, Exception):
         return defaults
 
@@ -1292,33 +1305,54 @@ def find_active_run(
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    """Initialize .flow/ directory structure."""
+    """Initialize or upgrade .flow/ directory structure (idempotent)."""
     flow_dir = get_flow_dir()
+    actions = []
 
-    if flow_dir.exists():
-        if args.json:
-            json_output({"message": ".flow/ already exists", "path": str(flow_dir)})
-        else:
-            print(f".flow/ already exists at {flow_dir}")
-        return
+    # Create directories if missing (idempotent, never destroys existing)
+    for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR]:
+        dir_path = flow_dir / subdir
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True)
+            actions.append(f"created {subdir}/")
 
-    # Create directory structure
-    (flow_dir / EPICS_DIR).mkdir(parents=True)
-    (flow_dir / SPECS_DIR).mkdir(parents=True)
-    (flow_dir / TASKS_DIR).mkdir(parents=True)
-    (flow_dir / MEMORY_DIR).mkdir(parents=True)
+    # Create meta.json if missing (never overwrite existing)
+    meta_path = flow_dir / META_FILE
+    if not meta_path.exists():
+        meta = {"schema_version": SCHEMA_VERSION, "next_epic": 1}
+        atomic_write_json(meta_path, meta)
+        actions.append("created meta.json")
 
-    # Create meta.json
-    meta = {"schema_version": SCHEMA_VERSION, "next_epic": 1}
-    atomic_write_json(flow_dir / META_FILE, meta)
+    # Config: create or upgrade (merge missing defaults)
+    config_path = flow_dir / CONFIG_FILE
+    if not config_path.exists():
+        atomic_write_json(config_path, get_default_config())
+        actions.append("created config.json")
+    else:
+        # Load raw config, compare with merged (which includes new defaults)
+        try:
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raw = {}
+        except (json.JSONDecodeError, Exception):
+            raw = {}
+        merged = deep_merge(get_default_config(), raw)
+        if merged != raw:
+            atomic_write_json(config_path, merged)
+            actions.append("upgraded config.json (added missing keys)")
 
-    # Create config.json with defaults
-    atomic_write_json(flow_dir / CONFIG_FILE, get_default_config())
+    # Output
+    if actions:
+        message = f".flow/ updated: {', '.join(actions)}"
+    else:
+        message = ".flow/ already up to date"
 
     if args.json:
-        json_output({"message": ".flow/ initialized", "path": str(flow_dir)})
+        json_output(
+            {"success": True, "message": message, "path": str(flow_dir), "actions": actions}
+        )
     else:
-        print(f".flow/ initialized at {flow_dir}")
+        print(message)
 
 
 def cmd_detect(args: argparse.Namespace) -> None:

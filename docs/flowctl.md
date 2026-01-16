@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, memory, prep-chat, rp, codex
+init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, memory, prep-chat, rp, codex, checkpoint, status
 ```
 
 ## Multi-User Safety
@@ -144,6 +144,26 @@ Set task acceptance section.
 ```bash
 flowctl task set-acceptance fn-1.2 --file accept.md [--json]
 ```
+
+### task set-spec
+
+Set description and acceptance in one call (fewer writes).
+
+```bash
+flowctl task set-spec fn-1.2 --description desc.md --acceptance accept.md [--json]
+```
+
+Both `--description` and `--acceptance` are optional; supply one or both.
+
+### task reset
+
+Reset task to `todo` status, clearing assignee and completion data.
+
+```bash
+flowctl task reset fn-1.2 [--cascade] [--json]
+```
+
+Use `--cascade` to also reset dependent tasks within the same epic.
 
 ### dep add
 
@@ -366,6 +386,7 @@ flowctl config toggle memory.enabled [--json]
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `memory.enabled` | bool | `false` | Enable memory system |
+| `planSync.enabled` | bool | `false` | Enable plan-sync after task completion |
 | `review.backend` | string | auto | Default review backend (`rp`, `codex`, `none`) |
 
 Auto-detect priority: `FLOW_REVIEW_BACKEND` env → config → available CLI.
@@ -505,6 +526,38 @@ References: src/middleware.py:45 (calls authenticate), tests/test_auth.py:12
 ```
 
 **Session continuity:** Receipt includes `session_id` (thread_id from codex). Subsequent reviews read the existing receipt and resume the conversation, maintaining full context across fix → re-review cycles.
+
+### checkpoint
+
+Save and restore epic state (used during review-fix cycles).
+
+```bash
+# Save epic state to .flow/.checkpoint-fn-1.json
+flowctl checkpoint save --epic fn-1 [--json]
+
+# Restore epic state from checkpoint
+flowctl checkpoint restore --epic fn-1 [--json]
+
+# Delete checkpoint
+flowctl checkpoint delete --epic fn-1 [--json]
+```
+
+Checkpoints preserve full epic + task state. Useful when compaction occurs during plan-review cycles.
+
+### status
+
+Show `.flow/` state summary.
+
+```bash
+flowctl status [--json]
+```
+
+Output:
+```json
+{"success": true, "epic_count": 2, "task_count": 5, "done_count": 2, "active_runs": []}
+```
+
+Human-readable output shows epic/task counts and any active Ralph runs.
 
 ## Ralph Receipts
 
