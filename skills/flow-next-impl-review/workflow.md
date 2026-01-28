@@ -202,6 +202,22 @@ Conduct a John Carmack-level review:
 6. **Tests** - Adequate coverage? Testing behavior?
 7. **Security** - Injection? Auth gaps?
 
+## Scenario Exploration (for changed code only)
+
+Walk through these scenarios mentally for any new/modified code paths:
+
+- [ ] Happy path - Normal operation with valid inputs
+- [ ] Invalid inputs - Null, empty, malformed data
+- [ ] Boundary conditions - Min/max values, empty collections
+- [ ] Concurrent access - Race conditions, deadlocks
+- [ ] Network issues - Timeouts, partial failures
+- [ ] Resource exhaustion - Memory, disk, connections
+- [ ] Security attacks - Injection, overflow, DoS vectors
+- [ ] Data corruption - Partial writes, inconsistency
+- [ ] Cascading failures - Downstream service issues
+
+Only flag issues that apply to the **changed code** - not pre-existing patterns.
+
 ## Output Format
 
 For each issue:
@@ -248,7 +264,11 @@ If no verdict tag in response, output `<promise>RETRY</promise>` and stop.
 
 ## Fix Loop (RP)
 
+**CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
+
 **CRITICAL: You MUST fix the code BEFORE re-reviewing. Never re-review without making changes.**
+
+**MAX ITERATIONS**: Limit fix+re-review cycles to **${MAX_REVIEW_ITERATIONS:-3}** iterations (default 3, configurable in Ralph's config.env). If still NEEDS_WORK after max rounds, output `<promise>RETRY</promise>` and stop — let the next Ralph iteration start fresh.
 
 If verdict is NEEDS_WORK:
 
@@ -262,7 +282,7 @@ If verdict is NEEDS_WORK:
    ```
    **If you skip this and re-review without committing changes, reviewer will return NEEDS_WORK again.**
 
-5. **Re-review with fix summary** (only AFTER step 4):
+5. **Request re-review** (only AFTER step 4):
 
    **IMPORTANT**: Do NOT re-add files already in the selection. RepoPrompt auto-refreshes
    file contents on every message. Only use `select-add` for NEW files created during fixes:
@@ -275,11 +295,11 @@ If verdict is NEEDS_WORK:
 
    Then send re-review request (NO --new-chat, stay in same chat).
 
-   **Keep this message minimal. Do NOT enumerate issues or reference file_contents - the reviewer already has context from the previous exchange.**
+   **CRITICAL: Do NOT summarize fixes.** RP auto-refreshes file contents - reviewer sees your changes automatically. Just request re-review. Any summary wastes tokens and duplicates what reviewer already sees.
 
    ```bash
    cat > /tmp/re-review.md << 'EOF'
-   All issues from your previous review have been addressed. Please verify the updated implementation and provide final verdict.
+   Issues addressed. Please re-review.
 
    **REQUIRED**: End with `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
    EOF

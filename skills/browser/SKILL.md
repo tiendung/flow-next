@@ -201,6 +201,20 @@ See [debugging.md](references/debugging.md) for traces, common issues.
 pkill -f agent-browser && agent-browser open <url>
 ```
 
+**`--headed` not showing window**: Daemon reuse bug. If daemon started headless, `--headed` flag is ignored on subsequent commands. Kill daemon first:
+```bash
+agent-browser close
+pkill -f "node.*daemon.js.*AGENT_BROWSER"
+pkill -f "Google Chrome for Testing"
+sleep 1
+agent-browser open <url> --headed
+```
+
+**Window exists but not visible** (macOS): Window may be behind others. Bring to front:
+```bash
+osascript -e 'tell application "Google Chrome for Testing" to activate'
+```
+
 **Element not found**: Re-snapshot after page changes. DOM may have updated.
 
 ## References

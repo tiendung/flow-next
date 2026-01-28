@@ -52,7 +52,12 @@ $FLOWCTL checkpoint save --epic "$EPIC_ID" --json
 ```bash
 RECEIPT_PATH="${REVIEW_RECEIPT_PATH:-/tmp/plan-review-receipt.json}"
 
-$FLOWCTL codex plan-review "$EPIC_ID" --receipt "$RECEIPT_PATH"
+# --files: comma-separated CODE files for reviewer context
+# Epic/task specs are auto-included; pass files the plan will CREATE or MODIFY
+# Read epic spec to identify affected paths, then list key files
+CODE_FILES="src/main.py,src/config.py"  # Customize per epic
+
+$FLOWCTL codex plan-review "$EPIC_ID" --files "$CODE_FILES" --receipt "$RECEIPT_PATH"
 ```
 
 **Output includes `VERDICT=SHIP|NEEDS_WORK|MAJOR_RETHINK`.**
@@ -130,14 +135,19 @@ Builder selects context automatically. Review and add must-haves:
 # See what builder selected
 $FLOWCTL rp select-get --window "$W" --tab "$T"
 
-# Always add the plan spec
+# Always add the epic spec
 $FLOWCTL rp select-add --window "$W" --tab "$T" .flow/specs/<epic-id>.md
+
+# Always add ALL task specs for this epic
+for task_spec in .flow/tasks/${EPIC_ID}.*.md; do
+  [[ -f "$task_spec" ]] && $FLOWCTL rp select-add --window "$W" --tab "$T" "$task_spec"
+done
 
 # Add PRD/architecture docs if found
 $FLOWCTL rp select-add --window "$W" --tab "$T" docs/prd.md
 ```
 
-**Why this matters:** Chat only sees selected files.
+**Why this matters:** Chat only sees selected files. Reviewer needs both epic spec AND task specs to check for consistency.
 
 ---
 
@@ -171,23 +181,38 @@ If you cannot find `<file_contents>`, ask for the files to be re-attached before
 ## Review Focus
 [USER'S FOCUS AREAS]
 
+## Review Scope
+
+You are reviewing:
+1. **Epic spec** - The high-level plan
+2. **Task specs** - Individual task breakdowns
+
+**CRITICAL**: Check for consistency between epic and tasks. Flag if:
+- Task specs contradict or miss epic requirements
+- Task acceptance criteria don't align with epic acceptance criteria
+- Task approaches would need to change based on epic design decisions
+- Epic mentions states/enums/types that tasks don't account for
+
 ## Review Criteria
 
 Conduct a John Carmack-level review:
 
 1. **Completeness** - All requirements covered? Missing edge cases?
 2. **Feasibility** - Technically sound? Dependencies clear?
-3. **Clarity** - Specs unambiguous? Acceptance criteria testable?
-4. **Architecture** - Right abstractions? Clean boundaries?
-5. **Risks** - Blockers identified? Security gaps? Mitigation?
-6. **Scope** - Right-sized? Over/under-engineering?
-7. **Testability** - How will we verify this works?
+3. **Parallelizability** - Do independent tasks touch disjoint files? Flag overlapping file scopes that will cause merge conflicts.
+4. **Clarity** - Specs unambiguous? Acceptance criteria testable?
+5. **Architecture** - Right abstractions? Clean boundaries?
+6. **Risks** - Blockers identified? Security gaps? Mitigation?
+7. **Scope** - Right-sized? Over/under-engineering?
+8. **Task sizing** - M tasks preferred. Flag over-splitting: 7+ tasks? Sequential S tasks that should be combined?
+9. **Testability** - How will we verify this works?
+10. **Consistency** - Do task specs align with epic spec?
 
 ## Output Format
 
 For each issue:
 - **Severity**: Critical / Major / Minor / Nitpick
-- **Location**: Which task or section
+- **Location**: Which task or section (e.g., "fn-1.3 Description" or "Epic Acceptance #2")
 - **Problem**: What's wrong
 - **Suggestion**: How to fix
 
@@ -240,17 +265,19 @@ If no verdict tag, output `<promise>RETRY</promise>` and stop.
 
 ## Fix Loop (RP)
 
+**CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
+
 **CRITICAL: You MUST fix the plan BEFORE re-reviewing. Never re-review without making changes.**
 
 If verdict is NEEDS_WORK:
 
 1. **Parse issues** - Extract ALL issues by severity (Critical → Major → Minor)
-2. **Fix the plan** - Address each issue.
-3. **Update plan in flowctl** (MANDATORY before re-review):
+2. **Fix the epic spec** - Address each issue.
+3. **Update epic spec in flowctl** (MANDATORY before re-review):
    ```bash
    # Option A: stdin heredoc (preferred, no temp file)
    $FLOWCTL epic set-plan <EPIC_ID> --file - --json <<'EOF'
-   <updated plan content>
+   <updated epic spec content>
    EOF
 
    # Option B: temp file (if content has single quotes)
@@ -263,7 +290,20 @@ If verdict is NEEDS_WORK:
    $FLOWCTL checkpoint restore --epic <EPIC_ID> --json
    ```
 
-4. **Re-review with fix summary** (only AFTER step 3):
+4. **Sync affected task specs** - If epic changes affect task specs, update them:
+   ```bash
+   $FLOWCTL task set-spec <TASK_ID> --file - --json <<'EOF'
+   <updated task spec content>
+   EOF
+   ```
+   Task specs need updating when epic changes affect:
+   - State/enum values referenced in tasks
+   - Acceptance criteria that tasks implement
+   - Approach/design decisions tasks depend on
+   - Lock/retry/error handling semantics
+   - API signatures or type definitions
+
+5. **Request re-review** (only AFTER steps 3-4):
 
    **IMPORTANT**: Do NOT re-add files already in the selection. RepoPrompt auto-refreshes
    file contents on every message. Only use `select-add` for NEW files created during fixes:
@@ -276,22 +316,24 @@ If verdict is NEEDS_WORK:
 
    Then send re-review request (NO --new-chat, stay in same chat).
 
-   **Keep this message minimal. Do NOT enumerate issues or reference file_contents - the reviewer already has context from the previous exchange.**
+   **CRITICAL: Do NOT summarize fixes.** RP auto-refreshes file contents - reviewer sees your changes automatically. Just request re-review. Any summary wastes tokens and duplicates what reviewer already sees.
 
    ```bash
    cat > /tmp/re-review.md << 'EOF'
-   All issues from your previous review have been addressed. Please verify the updated plan and provide final verdict.
+   Issues addressed. Please re-review.
 
    **REQUIRED**: End with `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
    EOF
 
    $FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/re-review.md
    ```
-5. **Repeat** until Ship
+6. **Repeat** until Ship
 
 **Anti-pattern**: Re-adding already-selected files before re-review. RP auto-refreshes; re-adding can cause issues.
 
 **Anti-pattern**: Re-reviewing without calling `epic set-plan` first. This wastes reviewer time and loops forever.
+
+**Anti-pattern**: Updating epic spec without syncing affected task specs. Causes reviewer to flag consistency issues again.
 
 ---
 

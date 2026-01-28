@@ -389,3 +389,10 @@ Standard tools excel at:
 - Use `rp-cli -d <cmd>` for detailed command help
 - Requires RepoPrompt v1.5.62+ with MCP Server enabled
 - Project path available via `$CLAUDE_PROJECT_DIR` environment variable
+
+## Output Rules (for planning)
+
+- Show signatures from `structure` command, not full file contents
+- Keep code snippets to <10 lines illustrating the pattern shape
+- DO NOT output complete function bodies for the planner to copy
+- Summarize architecture, don't dump raw output

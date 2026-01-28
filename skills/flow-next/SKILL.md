@@ -1,6 +1,6 @@
 ---
 name: flow-next
-description: "Manage .flow/ tasks and epics. Triggers: 'show me my tasks', 'list epics', 'what tasks are there', 'add a task', 'create task', 'what's ready', 'task status', 'show fn-1'. NOT for /flow-next:plan or /flow-next:work."
+description: "Manage .flow/ tasks and epics. Triggers: 'show me my tasks', 'list epics', 'what tasks are there', 'add a task', 'create task', 'what's ready', 'task status', 'show fn-1-abc'. NOT for /flow-next:plan or /flow-next:work."
 ---
 
 # Flow-Next Task Management
@@ -144,8 +144,8 @@ $FLOWCTL epic create --title "Epic title" --json
 
 ## ID Format
 
-- Epic: `fn-N` (e.g., `fn-1`, `fn-42`)
-- Task: `fn-N.M` (e.g., `fn-1.1`, `fn-42.7`)
+- Epic: `fn-N-xxx` (e.g., `fn-1-abc`, `fn-42-z9k`) or legacy `fn-N`
+- Task: `fn-N-xxx.M` (e.g., `fn-1-abc.1`, `fn-42-z9k.7`) or legacy `fn-N.M`
 
 ## Notes
 

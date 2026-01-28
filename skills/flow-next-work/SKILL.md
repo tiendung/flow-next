@@ -1,6 +1,6 @@
 ---
 name: flow-next-work
-description: Execute a Flow epic or task systematically with git setup, task tracking, quality checks, and commit workflow. Use when implementing a plan or working through a spec. Triggers on /flow-next:work with Flow IDs (fn-1, fn-1.2).
+description: Execute a Flow epic or task systematically with git setup, task tracking, quality checks, and commit workflow. Use when implementing a plan or working through a spec. Triggers on /flow-next:work with Flow IDs (fn-1-abc, fn-1-abc.2, or legacy fn-1, fn-1.2).
 ---
 
 # Flow work
@@ -38,18 +38,19 @@ If `REVIEW_RECEIPT_PATH` is set or `FLOW_RALPH=1`:
 Full request: $ARGUMENTS
 
 Accepts:
-- Flow epic ID `fn-N` to work through all tasks
-- Flow task ID `fn-N.M` to work on single task
+- Flow epic ID `fn-N-xxx` (e.g., `fn-1-abc`) or legacy `fn-N` to work through all tasks
+- Flow task ID `fn-N-xxx.M` (e.g., `fn-1-abc.2`) or legacy `fn-N.M` to work on single task
 - Markdown spec file path (creates epic from file, then executes)
 - Idea text (creates minimal epic + single task, then executes)
 - Chained instructions like "then review with /flow-next:impl-review"
 
 Examples:
-- `/flow-next:work fn-1`
-- `/flow-next:work fn-1.3`
+- `/flow-next:work fn-1-abc`
+- `/flow-next:work fn-1-abc.3`
+- `/flow-next:work fn-1` (legacy format still supported)
 - `/flow-next:work docs/my-feature-spec.md`
 - `/flow-next:work Add rate limiting`
-- `/flow-next:work fn-1 then review via /flow-next:impl-review`
+- `/flow-next:work fn-1-abc then review via /flow-next:impl-review`
 
 If no input provided, ask for it.
 

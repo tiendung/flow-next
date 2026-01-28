@@ -208,13 +208,15 @@ TASK2_2="$(echo "$TASK2_2_JSON" | extract_id)"
 # Use rp for both to test receipt generation (none skips receipts correctly via fix for #8)
 write_config "rp" "rp" "1" "new" "6" "5" "2"
 STUB_MODE=success STUB_WRITE_RECEIPT=1 CLAUDE_BIN="$TEST_DIR/bin/claude" scripts/ralph/ralph.sh >/dev/null
-"$PYTHON_BIN" - <<PY "$TASK2_1" "$TASK2_2"
-import json, sys
-from pathlib import Path
-for tid in sys.argv[1:3]:
-    data = json.loads(Path(f".flow/tasks/{tid}.json").read_text())
-    assert data["status"] == "done"
-PY
+# Use flowctl show to get merged state (definition + runtime)
+# Note: Definition files don't store status; runtime state is in .git/flow-state/
+for tid in "$TASK2_1" "$TASK2_2"; do
+  status=$(scripts/ralph/flowctl show "$tid" --json | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  if [[ "$status" != "done" ]]; then
+    echo "Task $tid status is '$status', expected 'done'" >&2
+    exit 1
+  fi
+done
 run_dir="$(latest_run_dir)"
 "$PYTHON_BIN" - <<PY "$run_dir" "$EPIC2" "$TASK2_1"
 import json, sys
@@ -314,12 +316,11 @@ TASK4_1_JSON="$(scripts/ralph/flowctl task create --epic "$EPIC4" --title "Stuck
 TASK4_1="$(echo "$TASK4_1_JSON" | extract_id)"
 write_config "none" "none" "0" "new" "3" "5" "2"
 STUB_MODE=retry CLAUDE_BIN="$TEST_DIR/bin/claude" scripts/ralph/ralph.sh >/dev/null
-"$PYTHON_BIN" - <<PY "$TASK4_1"
-import json, sys
-from pathlib import Path
-data = json.loads(Path(f".flow/tasks/{sys.argv[1]}.json").read_text())
-assert data["status"] == "blocked"
-PY
+status=$(scripts/ralph/flowctl show "$TASK4_1" --json | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['status'])")
+if [[ "$status" != "blocked" ]]; then
+  echo "Task $TASK4_1 status is '$status', expected 'blocked'" >&2
+  exit 1
+fi
 echo -e "${GREEN}✓${NC} blocks after attempts"
 PASS=$((PASS + 1))
 
@@ -366,13 +367,8 @@ set +e
 STUB_MODE=success STUB_EXIT_CODE=1 CLAUDE_BIN="$TEST_DIR/bin/claude" scripts/ralph/ralph.sh >/dev/null 2>&1
 rc=$?
 set -e
-"$PYTHON_BIN" - <<PY "$TASK6_1"
-import json, sys
-from pathlib import Path
-data = json.loads(Path(f".flow/tasks/{sys.argv[1]}.json").read_text())
-assert data["status"] == "done", f"Expected done, got {data['status']}"
-PY
-if [[ $? -eq 0 ]]; then
+status=$(scripts/ralph/flowctl show "$TASK6_1" --json | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['status'])")
+if [[ "$status" == "done" ]]; then
   echo -e "${GREEN}✓${NC} task done + exit 1 -> task completed (rc=$rc)"
   PASS=$((PASS + 1))
 else
@@ -390,14 +386,9 @@ set +e
 STUB_MODE=success STUB_EXIT_CODE=1 STUB_SKIP_DONE=1 CLAUDE_BIN="$TEST_DIR/bin/claude" scripts/ralph/ralph.sh >/dev/null 2>&1
 rc=$?
 set -e
-"$PYTHON_BIN" - <<PY "$TASK7_1"
-import json, sys
-from pathlib import Path
-data = json.loads(Path(f".flow/tasks/{sys.argv[1]}.json").read_text())
 # Should be blocked because task wasn't done AND exit was non-zero
-assert data["status"] == "blocked", f"Expected blocked, got {data['status']}"
-PY
-if [[ $? -eq 0 ]]; then
+status=$(scripts/ralph/flowctl show "$TASK7_1" --json | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['status'])")
+if [[ "$status" == "blocked" ]]; then
   echo -e "${GREEN}✓${NC} task not done + exit 1 -> blocked (rc=$rc)"
   PASS=$((PASS + 1))
 else

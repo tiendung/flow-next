@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, memory, prep-chat, rp, codex, checkpoint, status
+init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
 ```
 
 ## Multi-User Safety
@@ -40,8 +40,8 @@ Works out of the box for parallel branches. No setup required.
 Flowctl accepts schema v1 and v2; new fields are optional and defaulted.
 
 New fields:
-- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `depends_on_epics`, `branch_name`
-- Task JSON: `priority`
+- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `depends_on_epics`, `branch_name`, `default_impl`, `default_review`, `default_sync`
+- Task JSON: `priority`, `impl`, `review`, `sync`
 
 ## ID Format
 
@@ -116,6 +116,23 @@ Close epic (requires all tasks done).
 flowctl epic close fn-1 [--json]
 ```
 
+### epic set-backend
+
+Set default backend specs for impl/review/sync workers. Used by orchestration products (e.g., flow-swarm).
+
+```bash
+flowctl epic set-backend fn-1 --impl codex:gpt-5.2-codex [--json]
+flowctl epic set-backend fn-1 --impl codex:gpt-5.2-high --review claude:opus [--json]
+flowctl epic set-backend fn-1 --impl "" [--json]  # Clear impl (inherit from config)
+```
+
+Options:
+- `--impl SPEC`: Default impl backend (e.g., `codex:gpt-5.2-high`, `claude:opus`)
+- `--review SPEC`: Default review backend (e.g., `claude:opus`, `agent:opus-4.5-thinking`)
+- `--sync SPEC`: Default sync backend (e.g., `claude:haiku`, `gemini:gemini-2.5-flash`)
+
+Format: `backend:model` where backend is a CLI name and model is backend-specific.
+
 ### task create
 
 Create task under epic.
@@ -164,6 +181,50 @@ flowctl task reset fn-1.2 [--cascade] [--json]
 ```
 
 Use `--cascade` to also reset dependent tasks within the same epic.
+
+### task set-backend
+
+Set backend specs for impl/review/sync workers. Used by orchestration products (e.g., flow-swarm).
+
+```bash
+flowctl task set-backend fn-1.1 --impl codex:gpt-5.2-high [--json]
+flowctl task set-backend fn-1.1 --impl codex:gpt-5.2-high --review claude:opus [--json]
+flowctl task set-backend fn-1.1 --impl "" [--json]  # Clear impl (inherit from epic/config)
+```
+
+Options:
+- `--impl SPEC`: Impl backend (e.g., `codex:gpt-5.2-high`, `claude:opus`)
+- `--review SPEC`: Review backend (e.g., `claude:opus`, `agent:opus-4.5-thinking`)
+- `--sync SPEC`: Sync backend (e.g., `claude:haiku`, `gemini:gemini-2.5-flash`)
+
+Format: `backend:model` where backend is a CLI name and model is backend-specific.
+
+### task show-backend
+
+Show effective backend specs for a task. Reports task-level and epic-level specs only (config-level resolution happens in flow-swarm).
+
+```bash
+flowctl task show-backend fn-1.1 [--json]
+```
+
+Output (text):
+```
+impl: codex:gpt-5.2-high (task)
+review: claude:opus (epic)
+sync: null
+```
+
+Output (json):
+```json
+{
+  "success": true,
+  "id": "fn-1.1",
+  "epic": "fn-1",
+  "impl": {"spec": "codex:gpt-5.2-high", "source": "task"},
+  "review": {"spec": "claude:opus", "source": "epic"},
+  "sync": {"spec": null, "source": null}
+}
+```
 
 ### dep add
 
@@ -453,17 +514,36 @@ Output (stdout or file):
 
 ### rp
 
-RepoPrompt wrappers (preferred for reviews):
+RepoPrompt wrappers (preferred for reviews). Requires RepoPrompt 1.5.68+.
+
+**Primary entry point** (handles window selection + builder atomically):
 
 ```bash
-flowctl rp pick-window --repo-root "$REPO_ROOT"
-flowctl rp ensure-workspace --window "$W" --repo-root "$REPO_ROOT"
-flowctl rp builder --window "$W" --summary "Review a plan to ..."
+# Atomic setup - picks window by repo root and creates builder tab
+eval "$(flowctl rp setup-review --repo-root "$REPO_ROOT" --summary "Review a plan to ...")"
+# Returns: W=<window> T=<tab>
+
+# With --create: auto-creates RP window if none matches (RP 1.5.68+)
+eval "$(flowctl rp setup-review --repo-root "$REPO_ROOT" --summary "..." --create)"
+```
+
+**Post-setup commands** (use $W and $T from setup-review):
+
+```bash
 flowctl rp prompt-get --window "$W" --tab "$T"
 flowctl rp prompt-set --window "$W" --tab "$T" --message-file /tmp/review-prompt.md
 flowctl rp select-add --window "$W" --tab "$T" path/to/file
 flowctl rp chat-send --window "$W" --tab "$T" --message-file /tmp/review-prompt.md
 flowctl rp prompt-export --window "$W" --tab "$T" --out /tmp/export.md
+```
+
+**Low-level commands** (prefer setup-review instead):
+
+```bash
+flowctl rp windows [--json]
+flowctl rp pick-window --repo-root "$REPO_ROOT"
+flowctl rp ensure-workspace --window "$W" --repo-root "$REPO_ROOT"
+flowctl rp builder --window "$W" --summary "Review a plan to ..."
 ```
 
 ### codex
@@ -485,12 +565,13 @@ codex auth
 flowctl codex check [--json]
 
 # Implementation review (reviews code changes for a task)
-flowctl codex impl-review <task-id> --base <branch> [--receipt <path>] [--json]
-# Example: flowctl codex impl-review fn-1.3 --base main --receipt /tmp/impl-fn-1.3.json
+flowctl codex impl-review <task-id> --base <branch> [--sandbox <mode>] [--receipt <path>] [--json]
+# Example: flowctl codex impl-review fn-1.3 --base main --sandbox auto --receipt /tmp/impl-fn-1.3.json
 
 # Plan review (reviews epic spec before implementation)
-flowctl codex plan-review <epic-id> --base <branch> [--receipt <path>] [--json]
-# Example: flowctl codex plan-review fn-1 --base main --receipt /tmp/plan-fn-1.json
+flowctl codex plan-review <epic-id> --files <file1,file2,...> [--sandbox <mode>] [--receipt <path>] [--json]
+# Example: flowctl codex plan-review fn-1 --files "src/auth.ts,src/config.ts" --sandbox auto --receipt /tmp/plan-fn-1.json
+# Note: Epic/task specs are included automatically; --files should be CODE files for repository context.
 ```
 
 **How it works:**
@@ -529,6 +610,18 @@ References: src/middleware.py:45 (calls authenticate), tests/test_auth.py:12
 
 **Session continuity:** Receipt includes `session_id` (thread_id from codex). Subsequent reviews read the existing receipt and resume the conversation, maintaining full context across fix → re-review cycles.
 
+**Embedding budget (`FLOW_CODEX_EMBED_MAX_BYTES`):** Optional limit on the total bytes of file contents embedded into the review prompt (diff excluded). Default `0` (unlimited). Set to a value like `500000` (500KB) to cap prompt size.
+
+**Sandbox mode (`--sandbox`):** Controls Codex CLI's file system access. Available modes:
+- `read-only` (default on Unix) — Can only read files
+- `workspace-write` — Can write files in workspace
+- `danger-full-access` — Full file system access (required for Windows)
+- `auto` — Resolves to `danger-full-access` on Windows, `read-only` on Unix
+
+**Windows users:** Codex CLI's `read-only` sandbox blocks ALL shell commands on Windows (including reads). Use `--sandbox auto` or `--sandbox danger-full-access` for Windows compatibility.
+
+**Note:** After plugin update, re-run `/flow-next:setup` or `/flow-next:ralph-init` to get sandbox fixes.
+
 ### checkpoint
 
 Save and restore epic state (used during review-fix cycles).
@@ -561,6 +654,46 @@ Output:
 
 Human-readable output shows epic/task counts and any active Ralph runs.
 
+### state-path
+
+Show the resolved state directory path (useful for debugging parallel worktree setups).
+
+```bash
+flowctl state-path [--json]
+```
+
+Output:
+```json
+{"success": true, "state_dir": "/repo/.git/flow-state", "source": "git-common-dir"}
+```
+
+Source values:
+- `env` — `FLOW_STATE_DIR` environment variable
+- `git-common-dir` — `git --git-common-dir` (shared across worktrees)
+- `fallback` — `.flow/state` (non-git or old git)
+
+### migrate-state
+
+Migrate existing repos to the shared runtime state model.
+
+```bash
+flowctl migrate-state [--clean] [--json]
+```
+
+Options:
+- `--clean` — Remove runtime fields from tracked JSON files after migration (recommended for cleaner git diffs)
+
+What it does:
+1. Scans all task JSON files for runtime fields (`status`, `assignee`, `claimed_at`, etc.)
+2. Writes those fields to the state directory (`.git/flow-state/tasks/`)
+3. With `--clean`: removes runtime fields from the original JSON files
+
+**When to use:**
+- After upgrading to 0.17.0+ if you want parallel worktree support
+- To clean up git diffs (runtime changes no longer tracked)
+
+**Not required** for normal operation — the merged read path handles backward compatibility automatically.
+
 ## Ralph Receipts
 
 Review receipts are **not** managed by flowctl. They are written by the review skills when `REVIEW_RECEIPT_PATH` is set (Ralph sets this env var).
@@ -576,7 +709,7 @@ All commands support `--json` (except `cat`). Wrapper format:
 {"success": false, "error": "message"}
 ```
 
-Exit codes: 0=success, 1=error.
+Exit codes: 0=success, 1=general error, 2=tool/parse error, 3=sandbox configuration error.
 
 ## Error Handling
 

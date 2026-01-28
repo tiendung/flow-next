@@ -135,22 +135,34 @@ else
   git rev-parse main >/dev/null 2>&1 || DIFF_BASE="master"
 fi
 git log ${DIFF_BASE}..HEAD --oneline
-git diff ${DIFF_BASE}..HEAD --name-only
+CHANGED_FILES="$(git diff ${DIFF_BASE}..HEAD --name-only)"
 
-# Step 2: Atomic setup
+# Step 2: Atomic setup (pick-window + builder)
 eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "Review implementation: <summary>")"
 # Outputs W=<window> T=<tab>. If fails → <promise>RETRY</promise>
 
-# Step 3: Augment selection (add changed files)
-$FLOWCTL rp select-add --window "$W" --tab "$T" path/to/changed/files...
+# Step 3: Augment selection (add changed files + task spec)
+for f in $CHANGED_FILES; do
+  $FLOWCTL rp select-add --window "$W" --tab "$T" "$f"
+done
+$FLOWCTL rp select-add --window "$W" --tab "$T" .flow/specs/<task-id>.md
 
-# Step 4: Build and send review prompt (see workflow.md)
+# Step 4: Get builder handoff and build review prompt
+HANDOFF="$($FLOWCTL rp prompt-get --window "$W" --tab "$T")"
+# Build /tmp/review-prompt.md with handoff + review criteria (see workflow.md)
+
+# Step 5: Send review prompt
 $FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/review-prompt.md --new-chat --chat-name "Impl Review: [BRANCH]"
+# WAIT for response. Extract verdict from response.
+# Valid verdicts: SHIP, NEEDS_WORK, MAJOR_RETHINK
+# If no valid verdict tag → <promise>RETRY</promise>
 
-# Step 5: Write receipt if REVIEW_RECEIPT_PATH set
+# Step 6: Write receipt if REVIEW_RECEIPT_PATH set
 ```
 
 ## Fix Loop (INTERNAL - do not exit to Ralph)
+
+**CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
 
 If verdict is NEEDS_WORK, loop internally until SHIP:
 

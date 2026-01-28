@@ -15,6 +15,8 @@ Ask NON-OBVIOUS questions only. Expect 40+ questions for complex specs.
 - Integration points with existing code
 - Dependencies (internal and external)
 - API contracts and interfaces
+- For parallel work: can tasks touch disjoint files? (reduces merge conflicts)
+- For task sizing: can sequential steps be combined into M-sized tasks? (avoid over-splitting)
 
 ## Error Handling & Failure Modes
 

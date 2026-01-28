@@ -328,13 +328,15 @@ set +a
 MAX_ITERATIONS="${MAX_ITERATIONS:-25}"
 MAX_TURNS="${MAX_TURNS:-}"  # empty = no limit; Claude stops via promise tags
 MAX_ATTEMPTS_PER_TASK="${MAX_ATTEMPTS_PER_TASK:-5}"
-WORKER_TIMEOUT="${WORKER_TIMEOUT:-1800}"  # 30min default; prevents stuck workers
+WORKER_TIMEOUT="${WORKER_TIMEOUT:-3600}"  # 1hr default; safety guard against runaway workers
 BRANCH_MODE="${BRANCH_MODE:-new}"
 PLAN_REVIEW="${PLAN_REVIEW:-none}"
 WORK_REVIEW="${WORK_REVIEW:-none}"
+CODEX_SANDBOX="${CODEX_SANDBOX:-auto}"  # Codex sandbox mode; flowctl reads this env var
 REQUIRE_PLAN_REVIEW="${REQUIRE_PLAN_REVIEW:-0}"
 YOLO="${YOLO:-0}"
 EPICS="${EPICS:-}"
+export CODEX_SANDBOX  # Ensure available to Claude worker for flowctl codex commands
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -431,7 +433,7 @@ render_template() {
 import os, sys
 path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
-keys = ["EPIC_ID","TASK_ID","PLAN_REVIEW","WORK_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH"]
+keys = ["EPIC_ID","TASK_ID","PLAN_REVIEW","WORK_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
 for k in keys:
     text = text.replace("{{%s}}" % k, os.environ.get(k, ""))
 print(text)
@@ -693,10 +695,33 @@ print("1")
 PY
 }
 
+# Get list of open (non-done) epic IDs from flowctl epics --json
+list_open_epics() {
+  local tmpfile
+  tmpfile="$(mktemp)"
+  "$FLOWCTL" epics --json 2>/dev/null > "$tmpfile"
+  "$PYTHON_BIN" - "$tmpfile" <<'PY'
+import sys, json
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+    for e in data.get('epics', []):
+        if e.get('status') != 'done':
+            print(e.get('id', ''))
+except: pass
+PY
+  rm -f "$tmpfile"
+}
+
 maybe_close_epics() {
-  [[ -z "$EPICS_FILE" ]] && return 0
   local epics json status all_done
-  epics="$(list_epics_from_file)"
+  if [[ -n "$EPICS_FILE" ]]; then
+    # Scoped run: use epic list from file
+    epics="$(list_epics_from_file)"
+  else
+    # Unscoped run: get all open epics from flowctl
+    epics="$(list_open_epics)"
+  fi
   [[ -z "$epics" ]] && return 0
   for epic in $epics; do
     json="$("$FLOWCTL" show "$epic" --json 2>/dev/null || true)"
@@ -727,6 +752,20 @@ if data.get("type") != kind:
 if data.get("id") != rid:
     sys.exit(1)
 sys.exit(0)
+PY
+}
+
+# Read verdict field from receipt file (returns empty string if not found/error)
+read_receipt_verdict() {
+  local path="$1"
+  [[ -f "$path" ]] || return 0
+  "$PYTHON_BIN" - "$path" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+    print(data.get("verdict", ""))
+except Exception:
+    pass
 PY
 }
 
@@ -768,6 +807,10 @@ while (( iter <= MAX_ITERATIONS )); do
   # Check for pause/stop at start of iteration (before work selection)
   check_sentinels
 
+  # Close any epics with all tasks done BEFORE calling selector
+  # This ensures dependent epics become unblocked in the same iteration
+  maybe_close_epics
+
   selector_args=("$FLOWCTL" next --json)
   [[ -n "$EPICS_FILE" ]] && selector_args+=(--epics-file "$EPICS_FILE")
   [[ "$REQUIRE_PLAN_REVIEW" == "1" ]] && selector_args+=(--require-plan-review)
@@ -785,11 +828,14 @@ while (( iter <= MAX_ITERATIONS )); do
     if [[ "$reason" == "blocked_by_epic_deps" ]]; then
       log "blocked by epic deps"
     fi
-    maybe_close_epics
+    # maybe_close_epics already called at start of iteration
     ui_complete
     write_completion_marker "NO_WORK"
     exit 0
   fi
+
+  # Export iteration for receipt tracking
+  export RALPH_ITERATION="$iter"
 
   if [[ "$status" == "plan" ]]; then
     export EPIC_ID="$epic_id"
@@ -856,6 +902,11 @@ Violations break automation and leave the user with incomplete work. Be precise,
   fi
   [[ "${FLOW_RALPH_CLAUDE_VERBOSE:-}" == "1" ]] && claude_args+=(--verbose)
 
+  # Block Explore subagent auto-delegation - causes READ-ONLY failures in autonomous mode
+  # Worker already has disallowedTools: Task but CLI-level is more reliable (precedence 2 vs 6)
+  # See: https://code.claude.com/docs/en/sub-agents#disable-specific-subagents
+  claude_args+=(--disallowedTools "Task(Explore)")
+
   ui_waiting
   claude_out=""
   set +e
@@ -900,8 +951,10 @@ Violations break automation and leave the user with incomplete work. Be precise,
   # Handle timeout (exit code 124 from timeout command)
   worker_timeout=0
   if [[ -n "$TIMEOUT_CMD" && "$claude_rc" -eq 124 ]]; then
-    echo "ralph: worker timed out after ${WORKER_TIMEOUT}s" >> "$iter_log"
-    log "worker timeout after ${WORKER_TIMEOUT}s"
+    timeout_id="${task_id:-$epic_id}"
+    echo "ralph: worker timed out after ${WORKER_TIMEOUT}s (phase=$status id=$timeout_id iter=$iter)" >> "$iter_log"
+    echo "ralph: hint: increase WORKER_TIMEOUT in config.env (current=${WORKER_TIMEOUT}s, try 3600 for complex tasks)" >> "$iter_log"
+    log "worker timeout after ${WORKER_TIMEOUT}s phase=$status id=$timeout_id iter=$iter"
     worker_timeout=1
   fi
 
@@ -910,21 +963,31 @@ Violations break automation and leave the user with incomplete work. Be precise,
   force_retry=$worker_timeout
   plan_review_status=""
   task_status=""
+  impl_receipt_ok="1"
   if [[ "$status" == "plan" && ( "$PLAN_REVIEW" == "rp" || "$PLAN_REVIEW" == "codex" ) ]]; then
     if ! verify_receipt "$REVIEW_RECEIPT_PATH" "plan_review" "$epic_id"; then
       echo "ralph: missing plan review receipt; forcing retry" >> "$iter_log"
       log "missing plan receipt; forcing retry"
+      # Delete corrupted/partial receipt so next attempt starts clean
+      rm -f "$REVIEW_RECEIPT_PATH" 2>/dev/null || true
       "$FLOWCTL" epic set-plan-review-status "$epic_id" --status needs_work --json >/dev/null 2>&1 || true
       force_retry=1
     fi
     epic_json="$("$FLOWCTL" show "$epic_id" --json 2>/dev/null || true)"
     plan_review_status="$(json_get plan_review_status "$epic_json")"
   fi
+  receipt_verdict=""
   if [[ "$status" == "work" && ( "$WORK_REVIEW" == "rp" || "$WORK_REVIEW" == "codex" ) ]]; then
     if ! verify_receipt "$REVIEW_RECEIPT_PATH" "impl_review" "$task_id"; then
       echo "ralph: missing impl review receipt; forcing retry" >> "$iter_log"
       log "missing impl receipt; forcing retry"
+      impl_receipt_ok="0"
+      # Delete corrupted/partial receipt so next attempt starts clean
+      rm -f "$REVIEW_RECEIPT_PATH" 2>/dev/null || true
       force_retry=1
+    else
+      # Receipt is valid - read the verdict field
+      receipt_verdict="$(read_receipt_verdict "$REVIEW_RECEIPT_PATH")"
     fi
   fi
 
@@ -945,22 +1008,63 @@ Violations break automation and leave the user with incomplete work. Be precise,
   if [[ "$status" == "work" ]]; then
     task_json="$("$FLOWCTL" show "$task_id" --json 2>/dev/null || true)"
     task_status="$(json_get status "$task_json")"
-    if [[ "$task_status" != "done" ]]; then
+    if [[ "$task_status" == "done" ]]; then
+      if [[ "$impl_receipt_ok" == "0" ]]; then
+        # Task marked done but receipt missing/invalid - can't trust done status
+        # Reset to todo so flowctl next picks it up again (prevents task jumping)
+        echo "ralph: task done but receipt missing; resetting to todo" >> "$iter_log"
+        log "task $task_id: resetting done→todo (receipt missing)"
+        if "$FLOWCTL" task reset "$task_id" --json >/dev/null 2>&1; then
+          task_status="todo"
+        else
+          # Fatal: if reset fails, we'd silently skip this task forever (task jumping)
+          echo "ralph: FATAL: failed to reset task $task_id; aborting to prevent task jumping" >> "$iter_log"
+          ui_fail "Failed to reset $task_id after missing receipt; aborting to prevent task jumping"
+          write_completion_marker "FAILED"
+          exit 1
+        fi
+        force_retry=1
+      else
+        # Receipt is structurally valid - now check the verdict
+        if [[ "$receipt_verdict" == "NEEDS_WORK" ]]; then
+          # Task marked done but review said NEEDS_WORK - must retry
+          echo "ralph: receipt verdict is NEEDS_WORK; resetting task to todo" >> "$iter_log"
+          log "task $task_id: receipt verdict=NEEDS_WORK despite done status; resetting"
+          if "$FLOWCTL" task reset "$task_id" --json >/dev/null 2>&1; then
+            task_status="todo"
+          else
+            echo "ralph: FATAL: failed to reset task $task_id; aborting" >> "$iter_log"
+            ui_fail "Failed to reset $task_id after NEEDS_WORK verdict; aborting"
+            write_completion_marker "FAILED"
+            exit 1
+          fi
+          verdict="NEEDS_WORK"
+          force_retry=1
+        else
+          ui_task_done "$task_id"
+          # Use receipt verdict if available, otherwise derive from task completion
+          [[ -n "$receipt_verdict" ]] && verdict="$receipt_verdict"
+          [[ -z "$verdict" ]] && verdict="SHIP"
+          # If we timed out but can prove completion (done + receipt valid + verdict OK), don't retry
+          force_retry=0
+        fi
+      fi
+    else
       echo "ralph: task not done; forcing retry" >> "$iter_log"
       log "task $task_id status=$task_status; forcing retry"
       force_retry=1
-    else
-      ui_task_done "$task_id"
-      # Derive verdict from task completion for logging
-      [[ -z "$verdict" ]] && verdict="SHIP"
     fi
   fi
   append_progress "$verdict" "$promise" "$plan_review_status" "$task_status"
 
+  # NEVER honor COMPLETE from worker output (GH-73: premature completion bug)
+  # Workers are single-task/single-epic scope. Completion detection happens via
+  # the selector returning status=none at the top of the loop. Workers should
+  # NEVER output COMPLETE (both prompt_work.md and prompt_plan.md forbid it).
+  # If Claude outputs COMPLETE anyway, log it and continue - let selector decide.
   if echo "$claude_text" | grep -q "<promise>COMPLETE</promise>"; then
-    ui_complete
-    write_completion_marker "DONE"
-    exit 0
+    echo "ralph: WARNING: COMPLETE promise ignored (invalid in $status context)" >> "$iter_log"
+    log "COMPLETE ignored (invalid in $status context) - letting selector decide"
   fi
 
   exit_code=0
@@ -984,21 +1088,28 @@ Violations break automation and leave the user with incomplete work. Be precise,
   fi
 
   if [[ "$exit_code" -eq 2 && "$status" == "work" ]]; then
-    attempts="$(bump_attempts "$ATTEMPTS_FILE" "$task_id")"
-    log "retry task=$task_id attempts=$attempts"
-    ui_retry "$task_id" "$attempts" "$MAX_ATTEMPTS_PER_TASK"
-    if (( attempts >= MAX_ATTEMPTS_PER_TASK )); then
-      reason_file="$RUN_DIR/block-${task_id}.md"
-      {
-        echo "Auto-blocked after ${attempts} attempts."
-        echo "Run: $RUN_ID"
-        echo "Task: $task_id"
-        echo ""
-        echo "Last output:"
-        tail -n 40 "$iter_log" || true
-      } > "$reason_file"
-      "$FLOWCTL" block "$task_id" --reason-file "$reason_file" --json || true
-      ui_blocked "$task_id"
+    if [[ "$worker_timeout" -eq 0 ]]; then
+      # Real failure - count against attempts budget
+      attempts="$(bump_attempts "$ATTEMPTS_FILE" "$task_id")"
+      log "retry task=$task_id attempts=$attempts"
+      ui_retry "$task_id" "$attempts" "$MAX_ATTEMPTS_PER_TASK"
+      if (( attempts >= MAX_ATTEMPTS_PER_TASK )); then
+        reason_file="$RUN_DIR/block-${task_id}.md"
+        {
+          echo "Auto-blocked after ${attempts} attempts."
+          echo "Run: $RUN_ID"
+          echo "Task: $task_id"
+          echo ""
+          echo "Last output:"
+          tail -n 40 "$iter_log" || true
+        } > "$reason_file"
+        "$FLOWCTL" block "$task_id" --reason-file "$reason_file" --json || true
+        ui_blocked "$task_id"
+      fi
+    else
+      # Timeout is infrastructure issue, not code failure - don't count against attempts
+      log "timeout retry task=$task_id (not counting against attempts)"
+      ui "   ${C_YELLOW}↻ Timeout retry${C_RESET} ${C_DIM}(not counted)${C_RESET}"
     fi
   fi
 

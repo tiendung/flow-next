@@ -85,7 +85,7 @@ rp-cli -e 'prompt export /path/to/output.md'
 
 ```bash
 rp-cli -e 'builder "understand auth system"'
-rp-cli -e 'builder "find API endpoints" --response-type plan'
+rp-cli -e 'builder "find API endpoints" --type plan'
 ```
 
 ## Chat

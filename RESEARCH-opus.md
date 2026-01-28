@@ -1,8 +1,8 @@
 # Flow-Next: Research Document
 
-**Version**: 2.0  
-**Date**: 2026-01-13  
-**Plugin**: 0.6.1 by Gordon Mickel ([@gmickel](https://twitter.com/gmickel))
+**Version**: 2.1  
+**Date**: 2026-01-17  
+**Plugin**: 0.12.2 by Gordon Mickel ([@gmickel](https://twitter.com/gmickel))
 
 ---
 
@@ -52,12 +52,12 @@ Five principles guide the design:
 
 ```
 flow-next/
-├── agents/         # 7 subagents for parallel research
-├── commands/       # 8 command triggers
+├── agents/         # 10 subagents for parallel research
+├── commands/       # 9 command triggers
 ├── docs/           # CLI and Ralph guides
 ├── hooks/          # Ralph workflow guards
 ├── scripts/        # flowctl CLI (3961 lines Python)
-└── skills/         # 11 skill definitions
+└── skills/         # 15 skill definitions
 ```
 
 ---
@@ -180,7 +180,7 @@ Core commands:
 
 ## 4. Components
 
-### 4.1 Subagents (7)
+### 4.1 Subagents (10)
 
 Run in parallel to gather context fast:
 
@@ -191,10 +191,13 @@ Run in parallel to gather context fast:
 | docs-scout | Find documentation | WebSearch, WebFetch |
 | practice-scout | Gather best practices | WebSearch |
 | flow-gap-analyst | Find edge cases, gaps | Analysis |
-| memory-scout | Search project memory | Read |
+| memory-scout | Search project memory (opus model) | Read |
 | quality-auditor | Code review | Grep, Read |
+| worker | Execute single task in isolation | All |
+| plan-sync | Sync plan changes back to .flow/ | Read, Edit |
+| hook-test | Test hook functionality | Bash |
 
-### 4.2 Skills (11)
+### 4.2 Skills (15)
 
 | Skill | Purpose |
 |-------|---------|
@@ -209,6 +212,9 @@ Run in parallel to gather context fast:
 | flow-next-export-context | Export for external LLMs |
 | flow-next-rp-explorer | RepoPrompt exploration |
 | flow-next-worktree-kit | Git worktree management |
+| flow-next-sync | Sync plan changes to .flow/ |
+| browser | Browser automation |
+| hook-test | Test hook functionality |
 
 ### 4.3 Hooks
 
@@ -268,12 +274,17 @@ todo → in_progress → done
 ### 5.4 Work Workflow (phases.md)
 
 1. **Resolve input** — Epic ID, task ID, or idea text
+   - Task ID (fn-N.M) → SINGLE_TASK_MODE (no loop)
+   - Epic ID (fn-N) / Spec file / Idea → EPIC_MODE (loops through tasks)
 2. **Branch choice** — Current, new, or worktree
 3. **Re-anchor** — EVERY task (mandatory)
 4. **Execute** — start → implement → test → commit → done → validate
-5. **Quality** — Tests, lint, optional quality-auditor
-6. **Ship** — Verify all tasks done
-7. **Review** — If chosen, run impl-review
+5. **Loop or Finish**:
+   - SINGLE_TASK_MODE: Skip loop, go directly to Quality
+   - EPIC_MODE: Return to step 3 for next task
+6. **Quality** — Tests, lint, optional quality-auditor
+7. **Ship** — Verify all tasks done
+8. **Review** — If chosen, run impl-review
 
 Hard requirements:
 - Run `flowctl done` for each task
@@ -760,7 +771,7 @@ Flow-Next is a Claude Code plugin that solves the core problems of AI coding age
 
 The plugin uses five principles: plan-first methodology, mandatory re-anchoring before every task, cross-model reviews (GPT reviews Claude's work), receipt-based gating (proof-of-work for autonomous operations), and fresh context per iteration (each task starts clean).
 
-Architecture centers on `.flow/` directory for state, `flowctl` CLI for operations, 7 subagents for parallel research, and 11 skills for different workflows. Ralph provides autonomous overnight runs with quality gates.
+Architecture centers on `.flow/` directory for state, `flowctl` CLI for operations, 10 subagents for parallel research, and 15 skills for different workflows. Ralph provides autonomous overnight runs with quality gates.
 
 Key technical innovations include atomic operations for data integrity, symbol extraction for context hints, hook-based enforcement for Ralph mode, and RepoPrompt/Codex integration for cross-model reviews.
 
@@ -770,4 +781,4 @@ Flow-Next is production-ready for solo developers (plan + work), teams (soft cla
 
 ---
 
-*Research completed 2026-01-13 by AI Research Agent*
+*Research updated 2026-01-17 by AI Research Agent*

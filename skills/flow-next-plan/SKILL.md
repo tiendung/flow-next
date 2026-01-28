@@ -1,6 +1,6 @@
 ---
 name: flow-next-plan
-description: Create structured build plans from feature requests or Flow IDs. Use when planning features or designing implementation. Triggers on /flow-next:plan with text descriptions or Flow IDs (fn-1, fn-1.2).
+description: Create structured build plans from feature requests or Flow IDs. Use when planning features or designing implementation. Triggers on /flow-next:plan with text descriptions or Flow IDs (fn-1-abc, fn-1-abc.2, or legacy fn-1, fn-1.2).
 ---
 
 # Flow plan
@@ -17,9 +17,39 @@ FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
 $FLOWCTL <command>
 ```
 
+## Pre-check: Local setup version
+
+If `.flow/meta.json` exists and has `setup_version`, compare to plugin version:
+```bash
+SETUP_VER=$(jq -r '.setup_version // empty' .flow/meta.json 2>/dev/null)
+PLUGIN_VER=$(jq -r '.version' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+if [[ -n "$SETUP_VER" ]]; then
+  [[ "$SETUP_VER" = "$PLUGIN_VER" ]] || echo "Plugin updated to v${PLUGIN_VER}. Run /flow-next:setup to refresh local scripts (current: v${SETUP_VER})."
+fi
+```
+Continue regardless (non-blocking).
+
 **Role**: product-minded planner with strong repo awareness.
 **Goal**: produce an epic with tasks that match existing conventions and reuse points.
-**Task size**: every task must fit one `/flow-next:work` iteration. If it won't, split it.
+**Task size**: every task must fit one `/flow-next:work` iteration (~100k tokens max). If it won't, split it.
+
+## The Golden Rule: No Implementation Code
+
+**Plans are specs, not implementations.** Do NOT write the code that will be implemented.
+
+### Code IS allowed:
+- **Signatures/interfaces** (what, not how): `function validate(input: string): Result`
+- **Patterns from this repo** (with file:line ref): "Follow pattern at `src/auth.ts:42`"
+- **Recent/surprising APIs** (from docs-scout): "React 19 changed X — use `useOptimistic` instead"
+- **Non-obvious gotchas** (from practice-scout): "Must call `cleanup()` or memory leaks"
+
+### Code is FORBIDDEN:
+- Complete function implementations
+- Full class/module bodies
+- "Here's what you'll write" blocks
+- Copy-paste ready snippets (>10 lines)
+
+**Why:** Implementation happens in `/flow-next:work` with fresh context. Writing it here wastes tokens in planning, review, AND implementation — then causes drift when the implementer does it differently anyway.
 
 ## Input
 
@@ -27,14 +57,15 @@ Full request: $ARGUMENTS
 
 Accepts:
 - Feature/bug description in natural language
-- Flow epic ID `fn-N` to refine existing epic
-- Flow task ID `fn-N.M` to refine specific task
+- Flow epic ID `fn-N-xxx` (e.g., `fn-1-abc`) or legacy `fn-N` to refine existing epic
+- Flow task ID `fn-N-xxx.M` (e.g., `fn-1-abc.2`) or legacy `fn-N.M` to refine specific task
 - Chained instructions like "then review with /flow-next:plan-review"
 
 Examples:
 - `/flow-next:plan Add OAuth login for users`
-- `/flow-next:plan fn-1`
-- `/flow-next:plan fn-1 then review via /flow-next:plan-review`
+- `/flow-next:plan fn-1-abc`
+- `/flow-next:plan fn-1` (legacy format still supported)
+- `/flow-next:plan fn-1-abc then review via /flow-next:plan-review`
 
 If empty, ask: "What should I plan? Give me the feature or bug in 1-5 sentences."
 
@@ -62,6 +93,12 @@ Parse the arguments for these patterns. If found, use them and skip questions:
 
 ### If options NOT found in arguments
 
+**Plan depth** (parse from args or ask):
+- `--depth=short` or "quick" or "minimal" → SHORT
+- `--depth=standard` or "normal" → STANDARD
+- `--depth=deep` or "comprehensive" or "detailed" → DEEP
+- Default: SHORT (simpler is better)
+
 **If REVIEW_BACKEND is rp, codex, or none** (already configured): Only ask research question. Show override hint:
 
 ```
@@ -70,32 +107,38 @@ a) Yes, context-scout (slower, thorough)
 b) No, repo-scout (faster)
 
 (Reply: "a", "b", or just tell me)
-(Tip: --review=rp|codex|none overrides configured backend)
+(Tip: --depth=short|standard|deep, --review=rp|codex|none)
 ```
 
-**If REVIEW_BACKEND is ASK** (not configured): Ask both research AND review questions (do NOT use AskUserQuestion tool):
+**If REVIEW_BACKEND is ASK** (not configured): Ask all questions (do NOT use AskUserQuestion tool):
 
 ```
 Quick setup before planning:
 
-1. **Research approach** — Use RepoPrompt for deeper context?
+1. **Plan depth** — How detailed?
+   a) Short — problem, acceptance, key context only
+   b) Standard (default) — + approach, risks, test notes
+   c) Deep — + phases, alternatives, rollout plan
+
+2. **Research** — Use RepoPrompt for deeper context?
    a) Yes, context-scout (slower, thorough)
    b) No, repo-scout (faster)
 
-2. **Review** — Run Carmack-level review after?
+3. **Review** — Run Carmack-level review after?
    a) Codex CLI
    b) RepoPrompt
    c) Export for external LLM
-   d) None (configure later with --review flag)
+   d) None (configure later)
 
-(Reply: "1a 2a", "1b 2d", or just tell me naturally)
+(Reply: "1a 2b 3d", or just tell me naturally)
 ```
 
 Wait for response. Parse naturally — user may reply terse ("1a 2b") or ramble via voice.
 
 **Defaults when empty/ambiguous:**
+- Depth = `standard` (balanced detail)
 - Research = `grep` (repo-scout)
-- Review = configured backend if set, else `none` (user should run /flow-next:setup or pass --review flag)
+- Review = configured backend if set, else `none`
 
 ## Workflow
 
@@ -107,8 +150,8 @@ If user chose review:
 ## Output
 
 All plans go into `.flow/`:
-- Epic: `.flow/epics/fn-N.json` + `.flow/specs/fn-N.md`
-- Tasks: `.flow/tasks/fn-N.M.json` + `.flow/tasks/fn-N.M.md`
+- Epic: `.flow/epics/fn-N-xxx.json` + `.flow/specs/fn-N-xxx.md`
+- Tasks: `.flow/tasks/fn-N-xxx.M.json` + `.flow/tasks/fn-N-xxx.M.md`
 
 **Never write plan files outside `.flow/`. Never use TodoWrite for task tracking.**
 

@@ -23,19 +23,22 @@ FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
 
 Detect input type in this order (first match wins):
 
-1. **Flow task ID** `fn-N.M` (e.g., fn-1.3)
-2. **Flow epic ID** `fn-N` (e.g., fn-1)
-3. **Spec file** `.md` path that exists on disk
-4. **Idea text** everything else
+1. **Flow task ID** `fn-N-xxx.M` (e.g., fn-1-abc.3) or legacy `fn-N.M` → **SINGLE_TASK_MODE**
+2. **Flow epic ID** `fn-N-xxx` (e.g., fn-1-abc) or legacy `fn-N` → **EPIC_MODE**
+3. **Spec file** `.md` path that exists on disk → **EPIC_MODE**
+4. **Idea text** everything else → **EPIC_MODE**
+
+**Track the mode** — it controls looping in Phase 3.
 
 ---
 
-**Flow task ID (fn-N.M)**:
+**Flow task ID (fn-N-xxx.M or fn-N.M)** → SINGLE_TASK_MODE:
 - Read task: `$FLOWCTL show <id> --json`
 - Read spec: `$FLOWCTL cat <id>`
 - Get epic from task data for context: `$FLOWCTL show <epic-id> --json && $FLOWCTL cat <epic-id>`
+- **This is the only task to execute** — no loop to next task
 
-**Flow epic ID (fn-N)**:
+**Flow epic ID (fn-N-xxx or fn-N)** → EPIC_MODE:
 - Read epic: `$FLOWCTL show <id> --json`
 - Read spec: `$FLOWCTL cat <id>`
 - Get first ready task: `$FLOWCTL ready --epic <id> --json`
@@ -122,7 +125,9 @@ $FLOWCTL show <task-id> --json
 
 If status is not `done`, the worker failed. Check output and retry or investigate.
 
-### 3e. Plan Sync (if enabled)
+### 3e. Plan Sync (if enabled) — BOTH MODES
+
+**Runs in SINGLE_TASK_MODE and EPIC_MODE.** Only the loop-back in 3f differs by mode.
 
 Only run plan-sync if the task status is `done` (from step 3d). If not `done`, skip plan-sync and investigate/retry.
 
@@ -165,9 +170,13 @@ Follow your phases in plan-sync.md exactly.
 
 Plan-sync returns summary. Log it but don't block - task updates are best-effort.
 
-### 3f. Loop
+### 3f. Loop or Finish
 
-Return to 3a for next task.
+**IMPORTANT**: Steps 3d and 3e ALWAYS run after worker returns, regardless of mode. Only the loop-back behavior differs:
+
+**SINGLE_TASK_MODE**: After 3d→3e, go to Phase 4 (Quality). No loop.
+
+**EPIC_MODE**: After 3d→3e, return to 3a for next task.
 
 ---
 
@@ -224,10 +233,13 @@ Confirm before ship:
 - Docs updated if needed
 - Working tree is clean
 
-## Example loop
+## Example flow
 
 ```
-Phase 1 (resolve) → Phase 2 (branch) → Phase 3 loop:
-  ├─ find task → start → spawn worker → verify → repeat
+Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
+  ├─ 3a-c: find task → start → spawn worker
+  ├─ 3d: verify done
+  ├─ 3e: plan-sync (if enabled + downstream tasks exist)
+  ├─ 3f: EPIC_MODE? → loop to 3a | SINGLE_TASK_MODE? → Phase 4
   └─ no more tasks → Phase 4 (quality) → Phase 5 (ship)
 ```
