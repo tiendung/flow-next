@@ -1,6 +1,7 @@
 ---
 name: flow-next-sync
 description: Manually trigger plan-sync to update downstream task specs after implementation drift. Use when code changes outpace specs.
+user-invocable: false
 ---
 
 # Manual Plan-Sync
@@ -17,7 +18,7 @@ FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
 Arguments: $ARGUMENTS
 Format: `<id> [--dry-run]`
 
-- `<id>` - task ID (fn-N.M) or epic ID (fn-N or fn-N-xxx)
+- `<id>` - task ID `fn-N-slug.M` (or legacy `fn-N.M`, `fn-N-xxx.M`) or epic ID `fn-N-slug` (or legacy `fn-N`, `fn-N-xxx`)
 - `--dry-run` - show changes without writing
 
 ## Workflow
@@ -36,11 +37,11 @@ Parse $ARGUMENTS for:
 **Validate ID format first:**
 - Must start with `fn-`
 - If no ID provided: "Usage: /flow-next:sync <id> [--dry-run]"
-- If doesn't match `fn-*` pattern: "Invalid ID format. Use fn-N (epic) or fn-N.M (task)."
+- If doesn't match `fn-*` pattern: "Invalid ID format. Use fn-N-slug (epic) or fn-N-slug.M (task). Legacy fn-N, fn-N-xxx also work."
 
 Detect ID type:
-- Contains `.` (e.g., fn-1.2) -> task ID
-- No `.` (e.g., fn-1 or fn-1-abc) -> epic ID
+- Contains `.` (e.g., fn-1.2 or fn-1-add-oauth.2) -> task ID
+- No `.` (e.g., fn-1 or fn-1-add-oauth) -> epic ID
 
 ### Step 2: Validate Environment
 
@@ -142,7 +143,7 @@ No files modified.
 |------|---------|
 | No ID provided | "Usage: /flow-next:sync <id> [--dry-run]" |
 | No `.flow/` | "No .flow/ found. Run `flowctl init` first." |
-| Invalid format | "Invalid ID format. Use fn-N (epic) or fn-N.M (task)." |
+| Invalid format | "Invalid ID format. Use fn-N-slug (epic) or fn-N-slug.M (task). Legacy fn-N, fn-N-xxx also work." |
 | Task not found | "Task <id> not found. Run `flowctl list` to see available." |
 | Epic not found | "Epic <id> not found. Run `flowctl list` to see available." |
 | No source (epic mode) | "No completed or in-progress tasks to sync from. Complete a task first." |

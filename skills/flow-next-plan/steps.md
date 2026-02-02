@@ -72,7 +72,7 @@ $FLOWCTL init --json
 
 ## Step 1: Fast research (parallel)
 
-**If input is a Flow ID** (fn-N-xxx or fn-N.M, including legacy fn-N): First fetch it with `$FLOWCTL show <id> --json` and `$FLOWCTL cat <id>` to get the request context.
+**If input is a Flow ID** (fn-N-slug or fn-N-slug.M, including legacy fn-N/fn-N-xxx): First fetch it with `$FLOWCTL show <id> --json` and `$FLOWCTL cat <id>` to get the request context.
 
 **Check if memory is enabled:**
 ```bash
@@ -81,25 +81,39 @@ $FLOWCTL config get memory.enabled --json
 
 **Based on user's choice in SKILL.md setup:**
 
+---
+
+**CRITICAL: You MUST run ALL listed scouts. Run them in parallel for efficiency. Do NOT skip any scout — each provides unique signal that improves plan quality.**
+
+---
+
 **If user chose context-scout (RepoPrompt)**:
-Run these subagents in parallel using the Task tool:
-- Task flow-next:context-scout(<request>) - uses RepoPrompt builder for AI-powered file discovery
-- Task flow-next:practice-scout(<request>)
-- Task flow-next:docs-scout(<request>)
-- Task flow-next:github-scout(<request>) - cross-repo code search via gh CLI
-- Task flow-next:memory-scout(<request>) - **only if memory.enabled is true**
-- Task flow-next:epic-scout(<request>) - finds dependencies on existing open epics
-- Task flow-next:docs-gap-scout(<request>) - identifies docs that may need updates
+
+Run ALL of these scouts in parallel:
+| Scout | Purpose | Required |
+|-------|---------|----------|
+| `flow-next:context-scout` | RepoPrompt AI file discovery | YES |
+| `flow-next:practice-scout` | Best practices + pitfalls | YES |
+| `flow-next:docs-scout` | External documentation | YES |
+| `flow-next:github-scout` | Cross-repo patterns via gh CLI | YES |
+| `flow-next:memory-scout` | Project memory entries | IF memory.enabled |
+| `flow-next:epic-scout` | Dependencies on open epics | YES |
+| `flow-next:docs-gap-scout` | Docs needing updates | YES |
 
 **If user chose repo-scout (default/faster)** OR rp-cli unavailable:
-Run these subagents in parallel using the Task tool:
-- Task flow-next:repo-scout(<request>) - uses standard Grep/Glob/Read
-- Task flow-next:practice-scout(<request>)
-- Task flow-next:docs-scout(<request>)
-- Task flow-next:github-scout(<request>) - cross-repo code search via gh CLI
-- Task flow-next:memory-scout(<request>) - **only if memory.enabled is true**
-- Task flow-next:epic-scout(<request>) - finds dependencies on existing open epics
-- Task flow-next:docs-gap-scout(<request>) - identifies docs that may need updates
+
+Run ALL of these scouts in parallel:
+| Scout | Purpose | Required |
+|-------|---------|----------|
+| `flow-next:repo-scout` | Grep/Glob/Read patterns | YES |
+| `flow-next:practice-scout` | Best practices + pitfalls | YES |
+| `flow-next:docs-scout` | External documentation | YES |
+| `flow-next:github-scout` | Cross-repo patterns via gh CLI | YES |
+| `flow-next:memory-scout` | Project memory entries | IF memory.enabled |
+| `flow-next:epic-scout` | Dependencies on open epics | YES |
+| `flow-next:docs-gap-scout` | Docs needing updates | YES |
+
+**Anti-pattern**: Running only 2-3 scouts "because they seem most relevant" — this causes incomplete plans.
 
 Must capture:
 - File paths + line refs
@@ -160,7 +174,7 @@ Default to standard unless complexity demands more or less.
 
 **Route A - Input was an existing Flow ID**:
 
-1. If epic ID (fn-N-xxx or legacy fn-N):
+1. If epic ID (fn-N-slug or legacy fn-N/fn-N-xxx):
    ```bash
    # Use stdin heredoc (no temp file needed)
    $FLOWCTL epic set-plan <id> --file - --json <<'EOF'
@@ -169,7 +183,7 @@ Default to standard unless complexity demands more or less.
    ```
    - Create/update child tasks as needed
 
-2. If task ID (fn-N-xxx.M or legacy fn-N.M):
+2. If task ID (fn-N-slug.M or legacy fn-N.M/fn-N-xxx.M):
    ```bash
    # Combined set-spec: description + acceptance in one call
    # Write to temp files only if content has single quotes
@@ -182,10 +196,10 @@ Default to standard unless complexity demands more or less.
    ```bash
    $FLOWCTL epic create --title "<Short title>" --json
    ```
-   This returns the epic ID (e.g., fn-1-abc).
+   This returns the epic ID (e.g., fn-1-add-oauth).
 
 2. Set epic branch_name (deterministic):
-   - Default: use epic ID (e.g., fn-1-abc)
+   - Default: use epic ID (e.g., fn-1-add-oauth)
    ```bash
    $FLOWCTL epic set-branch <epic-id> --branch "<epic-id>" --json
    ```
@@ -222,15 +236,20 @@ Default to standard unless complexity demands more or less.
    Report findings at end of planning (no user prompt needed):
    ```
    Epic dependencies set:
-   - fn-N-xxx → fn-2-abc (Auth): Uses authService from fn-2-abc.1
-   - fn-N-xxx → fn-5-xyz (DB): Extends User model
+   - fn-N-slug → fn-2-add-auth (Auth): Uses authService from fn-2-add-auth.1
+   - fn-N-slug → fn-5-user-model (DB): Extends User model
    ```
 
 5. Create child tasks:
    ```bash
-   # For each task:
+   # Task with no dependencies:
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --json
+
+   # Task with dependencies (use --deps for inline dependency declaration):
+   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --deps <dep1>,<dep2> --json
    ```
+
+   **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order.
 
 6. Write task specs (use combined set-spec):
    ```bash
@@ -259,11 +278,18 @@ Default to standard unless complexity demands more or less.
    - [ ] Criterion 2
    ```
 
-7. Add task dependencies:
+7. Add task dependencies (if not already set via `--deps`):
+
+   **Preferred**: Use `--deps` flag during task creation (step 5). This saves tool calls.
+
+   **Alternative**: Use `dep add` to add dependencies after task creation:
    ```bash
-   # If task B depends on task A:
-   $FLOWCTL dep add <task-B-id> <task-A-id> --json
+   # Syntax: dep add <dependent-task> <dependency-task>
+   # "task B depends on task A" → dep add B A
+   $FLOWCTL dep add fn-N.2 fn-N.1 --json
    ```
+
+   Use `dep add` when you need to add dependencies to existing tasks or fix missed dependencies.
 
 8. Output current state:
    ```bash
@@ -302,13 +328,13 @@ If user chose "Yes" to review in SKILL.md setup question:
 Show epic summary with size breakdown and offer options:
 
 ```
-Epic fn-N-xxx created: "<title>"
+Epic fn-N-slug created: "<title>"
 Tasks: M total | Sizes: Ns S, Nm M
 
 Next steps:
-1) Start work: `/flow-next:work fn-N-xxx`
-2) Refine via interview: `/flow-next:interview fn-N-xxx`
-3) Review the plan: `/flow-next:plan-review fn-N-xxx`
+1) Start work: `/flow-next:work fn-N-slug`
+2) Refine via interview: `/flow-next:interview fn-N-slug`
+3) Review the plan: `/flow-next:plan-review fn-N-slug`
 4) Go deeper on specific tasks (tell me which)
 5) Simplify (reduce detail level)
 ```

@@ -25,28 +25,30 @@ Works out of the box for parallel branches. No setup required.
 
 ```
 .flow/
-├── meta.json          # {schema_version, next_epic}
-├── epics/fn-N.json    # Epic state
-├── specs/fn-N.md      # Epic spec (markdown)
-├── tasks/fn-N.M.json  # Task state
-├── tasks/fn-N.M.md    # Task spec (markdown)
-├── memory/            # Agent memory (reserved)
-├── bin/               # (optional) Local flowctl install via /flow-next:setup
+├── meta.json               # {schema_version, next_epic}
+├── epics/fn-N-slug.json    # Epic state (e.g., fn-1-add-oauth.json)
+├── specs/fn-N-slug.md      # Epic spec (markdown)
+├── tasks/fn-N-slug.M.json  # Task state (e.g., fn-1-add-oauth.1.json)
+├── tasks/fn-N-slug.M.md    # Task spec (markdown)
+├── memory/                 # Agent memory (reserved)
+├── bin/                    # (optional) Local flowctl install via /flow-next:setup
 │   ├── flowctl
 │   └── flowctl.py
-└── usage.md           # (optional) CLI reference via /flow-next:setup
+└── usage.md                # (optional) CLI reference via /flow-next:setup
 ```
 
 Flowctl accepts schema v1 and v2; new fields are optional and defaulted.
 
 New fields:
-- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `depends_on_epics`, `branch_name`, `default_impl`, `default_review`, `default_sync`
+- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `completion_review_status`, `completion_reviewed_at`, `depends_on_epics`, `branch_name`, `default_impl`, `default_review`, `default_sync`
 - Task JSON: `priority`, `impl`, `review`, `sync`
 
 ## ID Format
 
-- Epic: `fn-N` (e.g., `fn-1`, `fn-42`)
-- Task: `fn-N.M` (e.g., `fn-1.3`, `fn-42.7`)
+- **Epic**: `fn-N-slug` where `slug` is derived from the title (e.g., `fn-1-add-oauth`, `fn-2-fix-login-bug`)
+- **Task**: `fn-N-slug.M` (e.g., `fn-1-add-oauth.1`, `fn-2-fix-login-bug.2`)
+
+**Backwards compatibility**: Legacy formats `fn-N` (no suffix) and `fn-N-xxx` (random 3-char suffix) are still supported.
 
 ## Commands
 
@@ -76,12 +78,12 @@ Output:
 Create new epic.
 
 ```bash
-flowctl epic create --title "Epic title" [--branch "fn-1-epic"] [--json]
+flowctl epic create --title "Epic title" [--branch "fn-1-epic-title"] [--json]
 ```
 
 Output:
 ```json
-{"success": true, "id": "fn-1", "title": "Epic title", "spec_path": ".flow/specs/fn-1.md"}
+{"success": true, "id": "fn-1-epic-title", "title": "Epic title", "spec_path": ".flow/specs/fn-1-epic-title.md"}
 ```
 
 ### epic set-plan
@@ -98,6 +100,14 @@ Set plan review status and timestamp.
 
 ```bash
 flowctl epic set-plan-review-status fn-1 --status ship|needs_work|unknown [--json]
+```
+
+### epic set-completion-review-status
+
+Set completion review status and timestamp.
+
+```bash
+flowctl epic set-completion-review-status fn-1 --status ship|needs_work|unknown [--json]
 ```
 
 ### epic set-branch
@@ -228,13 +238,23 @@ Output (json):
 
 ### dep add
 
-Add dependency to task.
+Add single dependency to task.
 
 ```bash
 flowctl dep add fn-1.3 fn-1.2 [--json]
 ```
 
 Dependencies must be within same epic.
+
+### task set-deps
+
+Set multiple dependencies for a task (convenience command).
+
+```bash
+flowctl task set-deps fn-1.3 --deps fn-1.1,fn-1.2 [--json]
+```
+
+Equivalent to multiple `dep add` calls. Dependencies must be within same epic.
 
 ### show
 
@@ -341,13 +361,15 @@ Output:
 Select next plan/work unit.
 
 ```bash
-flowctl next [--epics-file epics.json] [--require-plan-review] [--json]
+flowctl next [--epics-file epics.json] [--require-plan-review] [--require-completion-review] [--json]
 ```
 
 Output:
 ```json
-{"status":"plan|work|none","epic":"fn-12","task":"fn-12.3","reason":"needs_plan_review|resume_in_progress|ready_task|none|blocked_by_epic_deps","blocked_epics":{"fn-12":["fn-3"]}}
+{"status":"plan|work|completion_review|none","epic":"fn-12","task":"fn-12.3","reason":"needs_plan_review|needs_completion_review|resume_in_progress|ready_task|none|blocked_by_epic_deps","blocked_epics":{"fn-12":["fn-3"]}}
 ```
+
+The `--require-completion-review` flag gates epic closure on completion review. When all tasks are done but `completion_review_status != ship`, returns `status: completion_review`.
 
 ### start
 
@@ -572,6 +594,11 @@ flowctl codex impl-review <task-id> --base <branch> [--sandbox <mode>] [--receip
 flowctl codex plan-review <epic-id> --files <file1,file2,...> [--sandbox <mode>] [--receipt <path>] [--json]
 # Example: flowctl codex plan-review fn-1 --files "src/auth.ts,src/config.ts" --sandbox auto --receipt /tmp/plan-fn-1.json
 # Note: Epic/task specs are included automatically; --files should be CODE files for repository context.
+
+# Completion review (reviews epic implementation against spec)
+flowctl codex completion-review <epic-id> [--sandbox <mode>] [--receipt <path>] [--json]
+# Example: flowctl codex completion-review fn-1 --sandbox auto --receipt /tmp/completion-fn-1.json
+# Runs after all tasks done; verifies implementation matches spec requirements
 ```
 
 **How it works:**
@@ -597,6 +624,8 @@ References: src/middleware.py:45 (calls authenticate), tests/test_auth.py:12
 | Impl | Correctness, Simplicity, DRY, Architecture, Edge Cases, Tests, Security |
 
 **Receipt schema (Ralph-compatible):**
+
+Impl review receipt:
 ```json
 {
   "type": "impl_review",
@@ -604,6 +633,18 @@ References: src/middleware.py:45 (calls authenticate), tests/test_auth.py:12
   "mode": "codex",
   "verdict": "SHIP",
   "session_id": "thread_abc123",
+  "timestamp": "2026-01-11T10:30:00Z"
+}
+```
+
+Completion review receipt:
+```json
+{
+  "type": "completion_review",
+  "id": "fn-1",
+  "mode": "codex",
+  "verdict": "SHIP",
+  "session_id": "thread_xyz456",
   "timestamp": "2026-01-11T10:30:00Z"
 }
 ```
@@ -696,7 +737,7 @@ What it does:
 
 ## Ralph Receipts
 
-Review receipts are **not** managed by flowctl. They are written by the review skills when `REVIEW_RECEIPT_PATH` is set (Ralph sets this env var).
+RepoPrompt review receipts are written by the review skills (not flowctl commands). Codex review receipts are written by `flowctl codex impl-review` and `flowctl codex completion-review` when `--receipt` is provided. Ralph sets `REVIEW_RECEIPT_PATH` to coordinate both.
 
 See: [Ralph deep dive](ralph.md)
 

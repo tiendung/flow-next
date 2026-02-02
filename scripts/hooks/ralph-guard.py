@@ -17,7 +17,7 @@ Supports both review backends:
 """
 
 # Version for drift detection (bump when making changes)
-RALPH_GUARD_VERSION = "0.11.0"
+RALPH_GUARD_VERSION = "0.12.0"
 
 import json
 import os
@@ -235,6 +235,14 @@ def handle_pre_tool_use(data: dict) -> None:
                     'Receipt must include: {"type":"...","id":"<TASK_OR_EPIC_ID>",...} '
                     "Copy the exact command from the prompt template."
                 )
+            # Validate completion_review receipts have verdict field
+            if "completion_review" in command or "completion-" in receipt_path:
+                if '"verdict"' not in command and "'verdict'" not in command:
+                    output_block(
+                        "BLOCKED: Receipt JSON is missing required 'verdict' field. "
+                        'Completion review receipts must include: {"verdict":"SHIP",...} '
+                        "Copy the exact command from the prompt template."
+                    )
             # For impl receipts, verify flowctl done was called
             if "impl_review" in command:
                 # Extract task id from receipt
@@ -259,18 +267,35 @@ def parse_receipt_path(receipt_path: str) -> tuple:
     """Parse receipt path to derive type and id.
 
     Returns (receipt_type, item_id) based on filename pattern:
-    - plan-fn-N.json or plan-fn-N-xxx.json -> ("plan_review", "fn-N" or "fn-N-xxx")
-    - impl-fn-N.M.json or impl-fn-N-xxx.M.json -> ("impl_review", "fn-N.M" or "fn-N-xxx.M")
+    - plan-fn-N.json or plan-fn-N-xxx.json or plan-fn-N-slug.json
+      -> ("plan_review", "fn-N" or "fn-N-xxx" or "fn-N-slug")
+    - impl-fn-N.M.json or impl-fn-N-xxx.M.json or impl-fn-N-slug.M.json
+      -> ("impl_review", "fn-N.M" or "fn-N-xxx.M" or "fn-N-slug.M")
+    - completion-fn-N.json or completion-fn-N-xxx.json or completion-fn-N-slug.json
+      -> ("completion_review", "fn-N" or "fn-N-xxx" or "fn-N-slug")
+
+    Suffix pattern supports:
+    - Legacy: fn-N (no suffix)
+    - Short: fn-N-xxx (1-3 char random)
+    - Slug: fn-N-longer-slug (multi-segment slugified title)
     """
     basename = os.path.basename(receipt_path)
-    # Try plan pattern first: plan-fn-N.json or plan-fn-N-xxx.json
-    plan_match = re.match(r"plan-(fn-\d+(?:-[a-z0-9]{3})?)\.json$", basename)
+    # Suffix pattern: optional hyphen + alphanumeric slug (1-3 char or multi-segment)
+    # Pattern: (?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?
+    suffix_pattern = r"(?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?"
+
+    # Try plan pattern first: plan-fn-N.json, plan-fn-N-xxx.json, plan-fn-N-slug.json
+    plan_match = re.match(rf"plan-(fn-\d+{suffix_pattern})\.json$", basename)
     if plan_match:
         return ("plan_review", plan_match.group(1))
-    # Try impl pattern: impl-fn-N.M.json or impl-fn-N-xxx.M.json
-    impl_match = re.match(r"impl-(fn-\d+(?:-[a-z0-9]{3})?\.\d+)\.json$", basename)
+    # Try impl pattern: impl-fn-N.M.json, impl-fn-N-xxx.M.json, impl-fn-N-slug.M.json
+    impl_match = re.match(rf"impl-(fn-\d+{suffix_pattern}\.\d+)\.json$", basename)
     if impl_match:
         return ("impl_review", impl_match.group(1))
+    # Try completion pattern: completion-fn-N.json, completion-fn-N-xxx.json, etc.
+    completion_match = re.match(rf"completion-(fn-\d+{suffix_pattern})\.json$", basename)
+    if completion_match:
+        return ("completion_review", completion_match.group(1))
     # Fallback
     return ("impl_review", "UNKNOWN")
 
@@ -307,7 +332,7 @@ def handle_post_tool_use(data: dict) -> None:
     if (
         "flowctl" in command
         and "codex" in command
-        and ("impl-review" in command or "plan-review" in command)
+        and ("impl-review" in command or "plan-review" in command or "completion-review" in command)
     ):
         # Codex writes receipt automatically with --receipt flag, but we still track success
         verdict_in_output = re.search(
@@ -400,7 +425,7 @@ def handle_post_tool_use(data: dict) -> None:
                     f"mkdir -p \"$(dirname '{receipt_path}')\"\n"
                     'ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"\n'
                     f"cat > '{receipt_path}' <<EOF\n"
-                    f'{{"type":"{receipt_type}","id":"{item_id}","mode":"rp","timestamp":"$ts"}}\n'
+                    f'{{"type":"{receipt_type}","id":"{item_id}","mode":"rp","verdict":"SHIP","timestamp":"$ts"}}\n'
                     "EOF"
                 )
                 # Provide feedback to Claude (rp mode only - codex writes receipt automatically)
@@ -486,22 +511,25 @@ def handle_stop(data: dict) -> None:
         if not Path(receipt_path).exists():
             # Derive type and id from receipt path
             receipt_type, item_id = parse_receipt_path(receipt_path)
-            # Build command with ts variable to avoid shell substitution in JSON
-            cmd = (
-                f"mkdir -p \"$(dirname '{receipt_path}')\"\n"
-                'ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"\n'
-                f"cat > '{receipt_path}' <<EOF\n"
-                f'{{"type":"{receipt_type}","id":"{item_id}","mode":"rp","timestamp":"$ts"}}\n'
-                "EOF"
-            )
-            # Block stop - receipt not written
+            # Tell worker to invoke the review skill, not write receipt manually
+            if receipt_type == "impl_review":
+                skill = "/flow-next:impl-review"
+                skill_desc = "implementation review"
+            elif receipt_type == "completion_review":
+                skill = "/flow-next:epic-review"
+                skill_desc = "epic completion review"
+            else:
+                skill = "/flow-next:plan-review"
+                skill_desc = "plan review"
+            # Block stop - review not completed
             output_json(
                 {
                     "decision": "block",
                     "reason": (
-                        f"Cannot stop: Review receipt not written. "
-                        f"You must write the receipt to: {receipt_path}\n"
-                        f"Run:\n{cmd}"
+                        f"Cannot stop: {skill_desc} not completed.\n"
+                        f"You MUST invoke `{skill} {item_id}` to complete the review.\n"
+                        f"The skill writes the receipt on SHIP verdict.\n"
+                        f"Do NOT write the receipt manually - that skips the actual review."
                     ),
                 }
             )

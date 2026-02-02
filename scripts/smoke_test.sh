@@ -249,6 +249,108 @@ PY
 echo -e "${GREEN}✓${NC} branch_name set"
 PASS=$((PASS + 1))
 
+echo -e "${YELLOW}--- epic set-title ---${NC}"
+# Create epic with tasks for rename test
+RENAME_EPIC_JSON="$(scripts/flowctl epic create --title "Old Title" --json)"
+RENAME_EPIC="$(echo "$RENAME_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+scripts/flowctl task create --epic "$RENAME_EPIC" --title "First task" --json >/dev/null
+scripts/flowctl task create --epic "$RENAME_EPIC" --title "Second task" --json >/dev/null
+# Add task dependency within epic
+scripts/flowctl dep add "${RENAME_EPIC}.2" "${RENAME_EPIC}.1" --json >/dev/null
+
+# Rename epic
+rename_result="$(scripts/flowctl epic set-title "$RENAME_EPIC" --title "New Shiny Title" --json)"
+NEW_EPIC="$(echo "$rename_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["new_id"])')"
+
+# Test 1: Verify old files are gone
+if [[ ! -f ".flow/epics/${RENAME_EPIC}.json" ]] && [[ ! -f ".flow/specs/${RENAME_EPIC}.md" ]]; then
+  echo -e "${GREEN}✓${NC} set-title removes old files"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} set-title old files still exist"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: Verify new files exist
+if [[ -f ".flow/epics/${NEW_EPIC}.json" ]] && [[ -f ".flow/specs/${NEW_EPIC}.md" ]]; then
+  echo -e "${GREEN}✓${NC} set-title creates new files"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} set-title new files missing"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 3: Verify epic JSON content updated
+"$PYTHON_BIN" - "$NEW_EPIC" <<'PY'
+import json, sys
+from pathlib import Path
+new_id = sys.argv[1]
+epic_data = json.loads(Path(f".flow/epics/{new_id}.json").read_text())
+assert epic_data["id"] == new_id, f"Epic ID not updated: {epic_data['id']}"
+assert epic_data["title"] == "New Shiny Title", f"Title not updated: {epic_data['title']}"
+assert new_id in epic_data["spec_path"], f"spec_path not updated: {epic_data['spec_path']}"
+PY
+echo -e "${GREEN}✓${NC} set-title updates epic JSON"
+PASS=$((PASS + 1))
+
+# Test 4: Verify task files renamed
+if [[ -f ".flow/tasks/${NEW_EPIC}.1.json" ]] && [[ -f ".flow/tasks/${NEW_EPIC}.2.json" ]]; then
+  echo -e "${GREEN}✓${NC} set-title renames task files"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} set-title task files not renamed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 5: Verify task JSON content updated (including depends_on)
+"$PYTHON_BIN" - "$NEW_EPIC" <<'PY'
+import json, sys
+from pathlib import Path
+new_id = sys.argv[1]
+task1_data = json.loads(Path(f".flow/tasks/{new_id}.1.json").read_text())
+task2_data = json.loads(Path(f".flow/tasks/{new_id}.2.json").read_text())
+assert task1_data["id"] == f"{new_id}.1", f"Task 1 ID not updated: {task1_data['id']}"
+assert task1_data["epic"] == new_id, f"Task 1 epic not updated: {task1_data['epic']}"
+assert task2_data["id"] == f"{new_id}.2", f"Task 2 ID not updated: {task2_data['id']}"
+# Verify depends_on was updated
+deps = task2_data.get("depends_on", [])
+assert f"{new_id}.1" in deps, f"depends_on not updated: {deps}"
+PY
+echo -e "${GREEN}✓${NC} set-title updates task JSON and deps"
+PASS=$((PASS + 1))
+
+# Test 6: Verify show works with new ID
+show_json="$(scripts/flowctl show "$NEW_EPIC" --json)"
+"$PYTHON_BIN" - "$show_json" "$NEW_EPIC" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+expected_id = sys.argv[2]
+assert data["id"] == expected_id, f"Show returns wrong ID: {data['id']}"
+assert data["title"] == "New Shiny Title"
+PY
+echo -e "${GREEN}✓${NC} set-title show works with new ID"
+PASS=$((PASS + 1))
+
+# Test 7: depends_on_epics update in other epics
+DEP_EPIC_JSON="$(scripts/flowctl epic create --title "Depends on renamed" --json)"
+DEP_EPIC="$(echo "$DEP_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+scripts/flowctl epic add-dep "$DEP_EPIC" "$NEW_EPIC" --json >/dev/null
+# Rename the dependency
+rename2_result="$(scripts/flowctl epic set-title "$NEW_EPIC" --title "Final Title" --json)"
+FINAL_EPIC="$(echo "$rename2_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["new_id"])')"
+# Verify DEP_EPIC's depends_on_epics was updated
+"$PYTHON_BIN" - "$DEP_EPIC" "$FINAL_EPIC" <<'PY'
+import json, sys
+from pathlib import Path
+dep_epic = sys.argv[1]
+final_epic = sys.argv[2]
+dep_data = json.loads(Path(f".flow/epics/{dep_epic}.json").read_text())
+deps = dep_data.get("depends_on_epics", [])
+assert final_epic in deps, f"depends_on_epics not updated: {deps}, expected {final_epic}"
+PY
+echo -e "${GREEN}✓${NC} set-title updates depends_on_epics in other epics"
+PASS=$((PASS + 1))
+
 echo -e "${YELLOW}--- block + validate + epic close ---${NC}"
 EPIC2_JSON="$(scripts/flowctl epic create --title "Epic Two" --json)"
 EPIC2="$(echo "$EPIC2_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
@@ -540,6 +642,16 @@ assert rid == "fn-5-x7k", f"Expected fn-5-x7k, got {rid}"
 rtype, rid = guard.parse_receipt_path("/tmp/receipts/impl-fn-5-x7k.3.json")
 assert rtype == "impl_review", f"Expected impl_review, got {rtype}"
 assert rid == "fn-5-x7k.3", f"Expected fn-5-x7k.3, got {rid}"
+
+# Test completion receipt parsing (legacy format)
+rtype, rid = guard.parse_receipt_path("/tmp/receipts/completion-fn-2.json")
+assert rtype == "completion_review", f"Expected completion_review, got {rtype}"
+assert rid == "fn-2", f"Expected fn-2, got {rid}"
+
+# Test completion receipt parsing (new fn-N-xxx format)
+rtype, rid = guard.parse_receipt_path("/tmp/receipts/completion-fn-7-abc.json")
+assert rtype == "completion_review", f"Expected completion_review, got {rtype}"
+assert rid == "fn-7-abc", f"Expected fn-7-abc, got {rid}"
 
 # Test fallback
 rtype, rid = guard.parse_receipt_path("/tmp/unknown.json")

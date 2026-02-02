@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.18.25-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.20.6-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/nHEmyJB5tg)
@@ -598,10 +598,10 @@ Ralph checks sentinels at iteration boundaries (after Claude returns, before nex
 **Task retry/rollback:**
 ```bash
 # Reset completed/blocked task to todo
-flowctl task reset fn-1-abc.3
+flowctl task reset fn-1-add-oauth.3
 
 # Reset + cascade to dependent tasks (same epic)
-flowctl task reset fn-1-abc.2 --cascade
+flowctl task reset fn-1-add-oauth.2 --cascade
 ```
 
 ---
@@ -620,7 +620,7 @@ flowchart TD
   E --> F[Parallel subagents: repo patterns + online docs + best practices]
   F --> G[flow-gap-analyst: edge cases + missing reqs]
   G --> H[Writes .flow/ epic + tasks + deps]
-  H --> I{Plan review? RepoPrompt only}
+  H --> I{Plan review?}
   I -- yes --> J[/flow-next:plan-review fn-N/]
   J --> K{Plan passes review?}
   K -- no --> L[Re-anchor + fix plan]
@@ -631,14 +631,20 @@ flowchart TD
   N --> O[Implement]
   O --> P[Test + verify acceptance]
   P --> Q[flowctl done: write done summary + evidence]
-  Q --> R{Impl review? RepoPrompt only}
+  Q --> R{Impl review?}
   R -- yes --> S[/flow-next:impl-review/]
   S --> T{Next ready task?}
   R -- no --> T
   T -- yes --> N
-  T -- no --> U[Close epic]
+  T -- no --> V{Epic review?}
+  V -- yes --> W[/flow-next:epic-review fn-N/]
+  W --> X{Epic passes review?}
+  X -- no --> Y[Fix gaps inline]
+  Y --> W
+  X -- yes --> U[Close epic]
+  V -- no --> U
   classDef optional stroke-dasharray: 6 4,stroke:#999;
-  class C,J,S optional;
+  class C,J,S,W optional;
 ```
 
 Notes:
@@ -762,12 +768,18 @@ Each epic and task gets its own JSON + markdown file pair. Merge conflicts are r
 
 Two models catch what one misses. Reviews use a second model (via RepoPrompt or Codex) to verify plans and implementations before they ship.
 
+**Three review types:**
+- **Plan reviews** — Verify architecture before coding starts
+- **Impl reviews** — Verify each task implementation
+- **Completion reviews** — Verify epic delivers all spec requirements before closing
+
 **Review criteria (Carmack-level, identical for both backends):**
 
 | Review Type | Criteria |
 |-------------|----------|
 | **Plan** | Completeness, Feasibility, Clarity, Architecture, Risks (incl. security), Scope, Testability |
 | **Impl** | Correctness, Simplicity, DRY, Architecture, Edge Cases, Tests, Security |
+| **Completion** | Spec compliance: all requirements delivered, docs updated, no gaps |
 
 Reviews block progress until `<verdict>SHIP</verdict>`. Fix → re-review cycles continue until approved.
 
@@ -923,7 +935,7 @@ flowctl memory read --type pitfalls
 
 When enabled:
 - **Planning**: `memory-scout` runs in parallel with other scouts
-- **Work**: `memory-scout` retrieves relevant entries during re-anchor
+- **Work**: worker reads memory files directly during re-anchor
 - **Ralph only**: NEEDS_WORK reviews auto-capture to `pitfalls.md`
 
 Memory retrieval works in both manual and Ralph modes. Auto-capture from reviews only happens in Ralph mode (via hooks). Use `flowctl memory add` for manual entries.
@@ -943,6 +955,7 @@ Ten commands, complete workflow:
 | `/flow-next:interview <id>` | Deep interview to flesh out a spec before planning |
 | `/flow-next:plan-review <id>` | Carmack-level plan review via RepoPrompt |
 | `/flow-next:impl-review` | Carmack-level impl review of current branch |
+| `/flow-next:epic-review <id>` | Epic-completion review: verify implementation matches spec |
 | `/flow-next:prime` | Assess codebase agent-readiness, propose fixes ([details](#agent-readiness-assessment)) |
 | `/flow-next:sync <id>` | Manual plan-sync: update downstream tasks after implementation drift |
 | `/flow-next:ralph-init` | Scaffold repo-local Ralph harness (`scripts/ralph/`) |
@@ -1066,6 +1079,21 @@ Carmack-level criteria: Completeness, Feasibility, Clarity, Architecture, Risks,
 | `[focus areas]` | Optional: "focus on performance" or "check error handling" |
 
 Reviews current branch changes. Carmack-level criteria: Correctness, Simplicity, DRY, Architecture, Edge Cases, Tests, Security.
+
+#### `/flow-next:epic-review`
+
+```
+/flow-next:epic-review <fn-N> [--review=rp|codex|none]
+```
+
+| Input | Description |
+|-------|-------------|
+| `fn-N` | Epic ID to review |
+| `--review=rp` | Use RepoPrompt (macOS, visual builder) |
+| `--review=codex` | Use OpenAI Codex CLI (cross-platform) |
+| `--review=none` | Skip review |
+
+Reviews epic implementation against spec. Runs after all tasks complete. Catches requirement gaps, missing functionality, incomplete doc updates.
 
 #### `/flow-next:prime`
 
@@ -1223,6 +1251,12 @@ flowchart TD
   F -->|WORK_REVIEW=none| G
 
   G --> A
+
+  B -->|status=completion_review| CR[/flow-next:epic-review fn-N/]
+  CR -->|verdict=SHIP| CRD[flowctl epic set-completion-review-status=ship]
+  CR -->|verdict!=SHIP| A
+  CRD --> A
+
   B -->|status=none| H[close done epics]
   H --> I[<promise>COMPLETE</promise>]
 ```
@@ -1238,12 +1272,12 @@ flowchart TD
 ├── meta.json              # Schema version
 ├── config.json            # Project settings (memory enabled, etc.)
 ├── epics/
-│   └── fn-1-abc.json      # Epic metadata (id, title, status, deps)
+│   └── fn-1-add-oauth.json      # Epic metadata (id, title, status, deps)
 ├── specs/
-│   └── fn-1-abc.md        # Epic spec (plan, scope, acceptance)
+│   └── fn-1-add-oauth.md        # Epic spec (plan, scope, acceptance)
 ├── tasks/
-│   ├── fn-1-abc.1.json    # Task metadata (id, status, priority, deps, assignee)
-│   ├── fn-1-abc.1.md      # Task spec (description, acceptance, done summary)
+│   ├── fn-1-add-oauth.1.json    # Task metadata (id, status, priority, deps, assignee)
+│   ├── fn-1-add-oauth.1.md      # Task spec (description, acceptance, done summary)
 │   └── ...
 └── memory/                # Persistent learnings (opt-in)
     ├── pitfalls.md        # Lessons from NEEDS_WORK reviews
@@ -1254,17 +1288,17 @@ flowchart TD
 Flowctl accepts schema v1 and v2; new fields are optional and defaulted.
 
 New fields:
-- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `depends_on_epics`, `branch_name`
+- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `completion_review_status`, `completion_reviewed_at`, `depends_on_epics`, `branch_name`
 - Task JSON: `priority`
 
 ### ID Format
 
-- **Epic**: `fn-N-xxx` where `xxx` is a 3-character alphanumeric suffix (e.g., `fn-1-abc`, `fn-42-z9k`)
-- **Task**: `fn-N-xxx.M` (e.g., `fn-1-abc.1`, `fn-42-z9k.7`)
+- **Epic**: `fn-N-slug` where `slug` is derived from the epic title (e.g., `fn-1-add-oauth`, `fn-2-fix-login-bug`)
+- **Task**: `fn-N-slug.M` (e.g., `fn-1-add-oauth.1`, `fn-2-fix-login-bug.2`)
 
-The random suffix prevents ID collisions when team members create epics simultaneously. Legacy `fn-N` format (without suffix) is still supported for backwards compatibility.
+The slug is automatically generated from the epic title (lowercase, hyphens for spaces, max 40 chars). This makes IDs human-readable and self-documenting.
 
-> **Note**: Examples in this README may use shorter `fn-1` format for brevity. New epics always receive a collision-resistant suffix.
+**Backwards compatibility**: Legacy formats `fn-N` (no suffix) and `fn-N-xxx` (random 3-char suffix) are still fully supported. Existing epics don't need migration.
 
 There are no task IDs outside an epic. If you want a single task, create an epic with one task.
 
