@@ -64,7 +64,7 @@ List expected files in each task's `**Files:**` field. If multiple tasks must to
 
 ```bash
 # Get flowctl path
-FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 
 # Ensure .flow exists
 $FLOWCTL init --json

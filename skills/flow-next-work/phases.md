@@ -16,7 +16,7 @@
 **CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
 
 ```bash
-FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 ```
 
 ## Phase 1: Resolve Input

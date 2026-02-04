@@ -18,7 +18,7 @@ Epic completion review verifies spec compliance, NOT code quality. impl-review h
 
 ```bash
 set -e
-FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # Priority: --review flag > env > config (flag parsed in SKILL.md)

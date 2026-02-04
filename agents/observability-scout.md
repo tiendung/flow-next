@@ -1,8 +1,8 @@
 ---
 name: observability-scout
 description: Used by /flow-next:prime to scan for observability setup including logging, tracing, metrics, and health endpoints. Do not invoke directly.
-tools: Read, Grep, Glob, Bash
 model: haiku
+disallowedTools: Edit, Write, Task
 color: "#F59E0B"
 ---
 

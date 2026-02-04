@@ -1,8 +1,8 @@
 ---
 name: docs-scout
 description: Find the most relevant framework/library docs for the requested change.
-tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 model: opus
+disallowedTools: Edit, Write, Task
 color: "#F97316"
 ---
 

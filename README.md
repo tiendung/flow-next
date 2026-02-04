@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.20.6-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.20.19-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/nHEmyJB5tg)
@@ -1434,6 +1434,28 @@ claude --plugin-dir ./plugins/flow-next
 
 ## Other Platforms
 
+### Factory Droid (Native Support)
+
+Flow-Next works natively in [Factory Droid](https://factory.ai) — no modifications needed.
+
+**Install:**
+```bash
+# In Droid CLI
+/plugin marketplace add https://github.com/gmickel/gmickel-claude-marketplace
+/plugin install flow-next
+```
+
+**Cross-platform patterns used:**
+- Skills use `${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}` bash fallback
+- Hooks use `Bash|Execute` regex matcher (Claude Code = Bash, Droid = Execute)
+- Agents use `disallowedTools` blacklist (not `tools` whitelist — tool names differ between platforms)
+
+**Caveats:**
+- Subagents may behave differently (Droid's Task tool implementation)
+- Hook timing may vary slightly
+
+> **Rollback:** If you experience issues, downgrade to v0.20.9 (last pre-Droid version): `claude plugins install flow-next@0.20.9`
+
 ### OpenAI Codex (Experimental)
 
 Flow-Next partially works in OpenAI Codex with some limitations:
@@ -1479,10 +1501,10 @@ Quick commands:
 
 ### Community Ports and Inspired Projects
 
-| Project | Platform | Based On |
-|---------|----------|----------|
-| [flow-next-opencode](https://github.com/gmickel/flow-next-opencode) | OpenCode | Flow-Next |
-| [FlowFactory](https://github.com/Gitmaxd/flowfactory) | Factory.ai Droid | Flow |
+| Project | Platform | Notes |
+|---------|----------|-------|
+| [flow-next-opencode](https://github.com/gmickel/flow-next-opencode) | OpenCode | Flow-Next port |
+| [FlowFactory](https://github.com/Gitmaxd/flowfactory) | Factory.ai Droid | Flow port (note: flow-next now has native Droid support) |
 
 ---
 

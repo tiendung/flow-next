@@ -1,7 +1,6 @@
 ---
 name: plan-sync
 description: Synchronizes downstream task specs after implementation. Spawned by flow-next-work after each task completes. Do not invoke directly.
-tools: Read, Grep, Glob, Edit
 disallowedTools: Task, Write, Bash
 model: opus
 color: "#8B5CF6"

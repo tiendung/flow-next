@@ -1,8 +1,8 @@
 ---
 name: practice-scout
 description: Gather modern best practices and pitfalls for the requested change.
-tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 model: opus
+disallowedTools: Edit, Write, Task
 color: "#EAB308"
 ---
 

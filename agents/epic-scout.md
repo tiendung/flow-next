@@ -1,8 +1,8 @@
 ---
 name: epic-scout
 description: Scan existing epics to find dependencies and relationships for a new plan.
-tools: Read, Grep, Glob, Bash
 model: haiku
+disallowedTools: Edit, Write, Task
 color: "#F59E0B"
 ---
 

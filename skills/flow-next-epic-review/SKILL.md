@@ -15,7 +15,7 @@ Verify that the combined implementation of all epic tasks satisfies the spec req
 
 **CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
 ```bash
-FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 ```
 
 ## Backend Selection
@@ -85,7 +85,7 @@ Format: `<epic-id> [--review=rp|codex|none]`
 **See [workflow.md](workflow.md) for full details on each backend.**
 
 ```bash
-FLOWCTL="${CLAUDE_PLUGIN_ROOT}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 
@@ -113,38 +113,17 @@ On NEEDS_WORK: fix code, commit, re-run (receipt enables session continuity).
 
 ### RepoPrompt Backend
 
-```bash
-# Step 1: Gather context
-EPIC_SPEC="$($FLOWCTL cat "$EPIC_ID")"
-TASKS="$($FLOWCTL tasks --epic "$EPIC_ID" --json)"
-CHANGED_FILES="$(git diff main..HEAD --name-only)"
+**⚠️ STOP: You MUST read and execute [workflow.md](workflow.md) now.**
 
-# Step 2: Atomic setup (pick-window + builder)
-eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "Epic completion review: $EPIC_ID")"
-# Outputs W=<window> T=<tab>. If fails → <promise>RETRY</promise>
+Go to the "RepoPrompt Backend Workflow" section in workflow.md and execute those steps. Do not proceed here until workflow.md phases are complete.
 
-# Step 3: Augment selection
-# Add epic spec, all task specs, and changed files
-$FLOWCTL rp select-add --window "$W" --tab "$T" .flow/specs/$EPIC_ID.md
-for task in $(echo "$TASKS" | jq -r '.[].id'); do
-  $FLOWCTL rp select-add --window "$W" --tab "$T" .flow/tasks/$task.md
-done
-for f in $CHANGED_FILES; do
-  $FLOWCTL rp select-add --window "$W" --tab "$T" "$f"
-done
+The workflow covers:
+1. Atomic setup (setup-review) → sets `$W` and `$T`
+2. Gather context and augment selection
+3. Build and send review prompt
+4. Parse verdict and handle fix loop
 
-# Step 4: Get builder handoff and build review prompt
-HANDOFF="$($FLOWCTL rp prompt-get --window "$W" --tab "$T")"
-# Build /tmp/completion-review-prompt.md with handoff + review criteria (see workflow.md)
-
-# Step 5: Send review prompt
-$FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/completion-review-prompt.md --new-chat --chat-name "Epic Review: $EPIC_ID"
-# WAIT for response. Extract verdict from response.
-# Valid verdicts: SHIP, NEEDS_WORK
-# If no valid verdict tag → <promise>RETRY</promise>
-
-# Step 6: Write receipt if REVIEW_RECEIPT_PATH set
-```
+**Return here only after workflow.md execution is complete.**
 
 ## Fix Loop (INTERNAL - do not exit to Ralph)
 

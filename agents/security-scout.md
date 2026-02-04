@@ -1,8 +1,8 @@
 ---
 name: security-scout
 description: Used by /flow-next:prime to scan for security configuration including GitHub settings, CODEOWNERS, and dependency updates. Do not invoke directly.
-tools: Read, Grep, Glob, Bash
 model: haiku
+disallowedTools: Edit, Write, Task
 color: "#EF4444"
 ---
 
