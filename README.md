@@ -50,8 +50,8 @@ Everything lives in your repo. No external services. No global config. Uninstall
 
 <table>
 <tr>
-<td><img src="../../assets/flow-next-plan.png" alt="Planning Phase" width="400"/></td>
-<td><img src="../../assets/flow-next-work.png" alt="Implementation Phase" width="400"/></td>
+<td><img src="assets/flow-next-plan.png" alt="Planning Phase" width="400"/></td>
+<td><img src="assets/flow-next-work.png" alt="Implementation Phase" width="400"/></td>
 </tr>
 <tr>
 <td align="center"><em>Planning: dependency-ordered tasks</em></td>
