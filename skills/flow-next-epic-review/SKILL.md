@@ -118,10 +118,10 @@ On NEEDS_WORK: fix code, commit, re-run (receipt enables session continuity).
 Go to the "RepoPrompt Backend Workflow" section in workflow.md and execute those steps. Do not proceed here until workflow.md phases are complete.
 
 The workflow covers:
-1. Atomic setup (setup-review) → sets `$W` and `$T`
-2. Gather context and augment selection
-3. Build and send review prompt
-4. Parse verdict and handle fix loop
+1. Gather context (epic spec, tasks, changed files)
+2. Atomic setup (setup-review) → sets `$W` and `$T`
+3. Augment selection and build review prompt
+4. Send review and parse verdict
 
 **Return here only after workflow.md execution is complete.**
 

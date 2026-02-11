@@ -90,11 +90,33 @@ Format: `{"mode":"codex","epic":"<id>","verdict":"<verdict>","session_id":"<thre
 
 Use when `BACKEND="rp"`.
 
+## Phase 1: Read the Plan (RP)
+
+**Run this BEFORE setup-review so the builder gets a real summary.**
+
+**If Flow issue:**
+```bash
+$FLOWCTL show <id> --json
+$FLOWCTL cat <id>
+```
+
+Save output for inclusion in review prompt. Compose a 1-2 sentence `REVIEW_SUMMARY` for the setup-review command below.
+
+**Save checkpoint** (protects against context compaction during review):
+```bash
+$FLOWCTL checkpoint save --epic <id> --json
+```
+This creates `.flow/.checkpoint-<id>.json` with full state. If compaction occurs during review-fix cycles, restore with `$FLOWCTL checkpoint restore --epic <id>`.
+
+---
+
 ### Atomic Setup Block
 
+**Only run ONCE. Uses the summary composed in Phase 1.**
+
 ```bash
-# Atomic: pick-window + builder
-eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "Review plan for <EPIC_ID>: <summary>")"
+# Atomic: pick-window + builder (uses REVIEW_SUMMARY from Phase 1)
+eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "$REVIEW_SUMMARY")"
 
 # Verify we have W and T
 if [[ -z "${W:-}" || -z "${T:-}" ]]; then
@@ -106,24 +128,7 @@ echo "Setup complete: W=$W T=$T"
 ```
 
 If this block fails, output `<promise>RETRY</promise>` and stop. Do not improvise.
-
----
-
-## Phase 1: Read the Plan (RP)
-
-**If Flow issue:**
-```bash
-$FLOWCTL show <id> --json
-$FLOWCTL cat <id>
-```
-
-Save output for inclusion in review prompt. Compose a 1-2 sentence summary for the setup-review command.
-
-**Save checkpoint** (protects against context compaction during review):
-```bash
-$FLOWCTL checkpoint save --epic <id> --json
-```
-This creates `.flow/.checkpoint-<id>.json` with full state. If compaction occurs during review-fix cycles, restore with `$FLOWCTL checkpoint restore --epic <id>`.
+**Do NOT re-run setup-review** — the builder runs inside it. Re-running = double context build.
 
 ---
 

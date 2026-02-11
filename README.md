@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.20.19-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.20.20-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/nHEmyJB5tg)
@@ -50,8 +50,8 @@ Everything lives in your repo. No external services. No global config. Uninstall
 
 <table>
 <tr>
-<td><img src="assets/flow-next-plan.png" alt="Planning Phase" width="400"/></td>
-<td><img src="assets/flow-next-work.png" alt="Implementation Phase" width="400"/></td>
+<td><img src="../../assets/flow-next-plan.png" alt="Planning Phase" width="400"/></td>
+<td><img src="../../assets/flow-next-work.png" alt="Implementation Phase" width="400"/></td>
 </tr>
 <tr>
 <td align="center"><em>Planning: dependency-ordered tasks</em></td>

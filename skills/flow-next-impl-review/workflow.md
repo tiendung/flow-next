@@ -86,26 +86,9 @@ Format: `{"mode":"codex","task":"<id>","verdict":"<verdict>","session_id":"<thre
 
 Use when `BACKEND="rp"`.
 
-### Atomic Setup Block
-
-```bash
-# Atomic: pick-window + builder
-eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "Review implementation of <summary> on current branch")"
-
-# Verify we have W and T
-if [[ -z "${W:-}" || -z "${T:-}" ]]; then
-  echo "<promise>RETRY</promise>"
-  exit 0
-fi
-
-echo "Setup complete: W=$W T=$T"
-```
-
-If this block fails, output `<promise>RETRY</promise>` and stop. Do not improvise.
-
----
-
 ## Phase 1: Identify Changes (RP)
+
+**Run this BEFORE setup-review so the builder gets a real summary.**
 
 ```bash
 BRANCH="$(git branch --show-current)"
@@ -130,7 +113,29 @@ Save:
 - Commit summary
 - DIFF_BASE (for reference in review prompt)
 
-Compose a 1-2 sentence summary for the setup-review command.
+Compose a 1-2 sentence `REVIEW_SUMMARY` describing the changes for the setup-review command below.
+
+---
+
+### Atomic Setup Block
+
+**Only run ONCE. Uses the summary composed in Phase 1.**
+
+```bash
+# Atomic: pick-window + builder (uses REVIEW_SUMMARY from Phase 1)
+eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "$REVIEW_SUMMARY")"
+
+# Verify we have W and T
+if [[ -z "${W:-}" || -z "${T:-}" ]]; then
+  echo "<promise>RETRY</promise>"
+  exit 0
+fi
+
+echo "Setup complete: W=$W T=$T"
+```
+
+If this block fails, output `<promise>RETRY</promise>` and stop. Do not improvise.
+**Do NOT re-run setup-review** — the builder runs inside it. Re-running = double context build.
 
 ---
 
